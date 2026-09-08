@@ -1,0 +1,32 @@
+{
+  "name": "nimbus",
+  "author": "MakeAwesomeHappen",
+  "version": "1.0.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {
+    "@moddable/pebbleproxy": "^0.2.0"
+  },
+  "pebble": {
+    "displayName": "Nimbus",
+    "uuid": "cf9c0d01-1aa2-44b2-a79f-644baa16d24c",
+    "projectType": "moddable",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "emery"
+    ],
+    "watchapp": {
+      "watchface": true
+    },
+    "capabilities": [
+      "location"
+    ],
+    "messageKeys": [],
+    "resources": {
+      "media": []
+    }
+  }
+}

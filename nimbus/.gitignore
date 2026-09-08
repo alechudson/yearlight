@@ -1,0 +1,5 @@
+build/
+node_modules/
+pebble-logs.txt
+pebble-logs.pid
+.lock-waf_darwin_build
