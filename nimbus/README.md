@@ -1,7 +1,11 @@
-# nimbus
+# Day Night
 
-A Pebble Alloy project — embedded JavaScript on the watch, powered by Moddable
-XS, alongside C.
+A Pebble Time 2 watchface: sunlight moving across a world map, with local
+weather, a 6-hour precip strip, and sunrise / sunset.
+
+No branding chrome — just the planet, the time, and the sky where you are.
+
+Weather comes from [Open-Meteo](https://open-meteo.com) via the phone GPS.
 
 ## Building & running
 
@@ -13,8 +17,23 @@ pebble install --phone <ip>           # install to a paired phone
 
 ## Target platforms
 
-Alloy targets the modern Pebble hardware: **emery** (Pebble Time 2) and
-**gabbro** (Pebble Round 2). Other platforms are currently not supported.
+Day Night targets **emery** (Pebble Time 2, 200 × 228). Other platforms are
+currently not supported.
+
+## Stability checks
+
+```sh
+node --test tests/*.cjs       # deterministic host-side regressions
+pebble build                 # compile the actual Moddable/Emery bundle
+pebble install --emulator emery
+pebble screenshot --no-open --emulator emery screenshot_emery.png
+```
+
+Host-side tests exercise the watch JavaScript with mocked hardware boundaries;
+they do not replace an emulator run or paired-phone testing. Before treating a
+build as a daily-driver release, test location permission denial, Bluetooth
+reconnection, a day rollover, and battery use on a real watch. The solar shading
+is an approximation, not a navigation or astronomical instrument.
 
 ## Project layout
 

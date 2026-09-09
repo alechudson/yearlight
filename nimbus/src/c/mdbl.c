@@ -8,11 +8,21 @@ int main(void) {
   // Built with `pebble build --debug`: enable the xsbug JavaScript debugger.
   ModdableCreationRecord cr = {
     .recordSize = sizeof(cr),
+    .stack = 6144,
+    .slot = 24576,
+    .chunk = 16384, // All three pools must be explicit; reserve native RAM for maps/Bluetooth.
     .flags = kModdableCreationFlagDebug,
   };
   moddable_createMachine(&cr);
 #else
-  moddable_createMachine(NULL);
+  ModdableCreationRecord cr = {
+    .recordSize = sizeof(cr),
+    .stack = 6144,
+    .slot = 24576,
+    .chunk = 16384, // All three pools must be explicit; reserve native RAM for maps/Bluetooth.
+    .flags = kModdableCreationFlagLogInstrumentation,
+  };
+  moddable_createMachine(&cr);
 #endif
 
   window_destroy(w);

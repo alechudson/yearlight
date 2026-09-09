@@ -1,5 +1,5 @@
 {
-  "name": "nimbus",
+  "name": "daynight",
   "author": "MakeAwesomeHappen",
   "version": "1.0.0",
   "keywords": [
@@ -10,7 +10,7 @@
     "@moddable/pebbleproxy": "^0.2.0"
   },
   "pebble": {
-    "displayName": "Nimbus",
+    "displayName": "Day Night",
     "uuid": "cf9c0d01-1aa2-44b2-a79f-644baa16d24c",
     "projectType": "moddable",
     "sdkVersion": "3",
@@ -26,7 +26,18 @@
     ],
     "messageKeys": [],
     "resources": {
-      "media": []
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WORLD_DAY",
+          "file": "img/world_day.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WORLD_NIGHT",
+          "file": "img/world_night.png"
+        }
+      ]
     }
   }
 }
