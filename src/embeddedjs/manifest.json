@@ -4,6 +4,9 @@
 		"$(MODDABLE)/examples/manifest_typings.json"
 	],
 	"modules": {
-		"*": "./main"
+		"*": [
+			"./main",
+			"./worldmask"
+		]
 	}
 }

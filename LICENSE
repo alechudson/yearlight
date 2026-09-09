@@ -22,18 +22,9 @@ SOFTWARE.
 
 ---
 
-The bundled map images resources/img/world_day.png and
-resources/img/world_night.png are derived from the 200-pixel-wide atlas:
-  resources/world~200w~color.png (day rows 0–99; night rows 100–199).
-Their visible 200x100 map regions match those upstream pixels exactly.
-Each bundled PNG includes a final palette row covered by the watchface HUD.
+Globe geography in src/embeddedjs/worldmask.js is rasterized from Natural
+Earth 1:110m land and lake vectors. Natural Earth is in the public domain;
+credit is optional.
 
-Source atlas:
-  https://github.com/rengianforte/pebble-day-night/blob/master/resources/world~200w~color.png
-
-Upstream project:
-
-  Day and Night Earth Watchface
-  Copyright (c) 2025 Ren Gianforte
-  https://github.com/rengianforte/pebble-day-night
-  MIT License
+  https://www.naturalearthdata.com/about/terms-of-use/
+  https://github.com/nvkelso/natural-earth-vector

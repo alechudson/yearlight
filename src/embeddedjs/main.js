@@ -1,21 +1,22 @@
 import Poco from "commodetto/Poco";
 import Location from "embedded:sensor/Location";
+import { MASK, MASK_W, MASK_H } from "worldmask";
 
 const MAP_W = 200;
-const MAP_H = 100;
+const MAP_H = 132;
 
 const render = new Poco(screen);
 const timeFont = new render.Font("Leco-Regular", 42);
 const dateFont = new render.Font("Gothic-Bold", 18);
-const smallFont = new render.Font("Gothic-Regular", 14);
 
 const black = render.makeColor(0, 0, 0);
 const white = render.makeColor(255, 255, 255);
-const gray = render.makeColor(170, 170, 170);
 const yellow = render.makeColor(255, 255, 0);
 const barFill = render.makeColor(0, 170, 255);
 const dayOcean = render.makeColor(0, 85, 170);
 const nightOcean = render.makeColor(0, 0, 85);
+const dayLand = render.makeColor(0, 170, 0);
+const nightLand = render.makeColor(0, 85, 0);
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -30,8 +31,6 @@ const state = {
 
 let lastDate = new Date();
 let locationSensor = null;
-let dayMap = null;
-let nightMap = null;
 
 function sunAt(now) {
 	// NOAA fractional-year approximation, using UTC rather than local time.
@@ -81,19 +80,57 @@ function nightSpansAt(y, sun) {
 	return spans;
 }
 
-function ensureMaps() {
-	if (dayMap)
-		return true;
-	try {
-		dayMap = new Poco.PebbleBitmap(1);
-		nightMap = new Poco.PebbleBitmap(2);
-		return true;
-	} catch (e) {
-		console.log("Map bitmap error: " + e);
-		dayMap = null;
-		nightMap = null;
-		return false;
+const GLOBE_CX = MAP_W / 2;
+const GLOBE_CY = MAP_H / 2;
+const GLOBE_R = 64;
+const GLOBE_TILT_MAX = 40;
+
+function isNightLonLat(lon, lat, sun) {
+	const xA = (lon + 180) * Math.PI / 180;
+	const latR = lat * Math.PI / 180;
+	return sun.sinY * Math.sin(-latR) + sun.cosY * Math.cos(latR) * (sun.cosX * Math.cos(xA) + sun.sinX * Math.sin(xA)) < 0;
+}
+
+function unprojectGlobe(x, y, lon0, sinLat0, cosLat0) {
+	const xn = (x + 0.5 - GLOBE_CX) / GLOBE_R;
+	const yn = (GLOBE_CY - (y + 0.5)) / GLOBE_R;
+	const rr = xn * xn + yn * yn;
+	if (rr > 1)
+		return null;
+	const z = Math.sqrt(1 - rr);
+	const lat = Math.asin(Math.max(-1, Math.min(1, yn * cosLat0 + z * sinLat0)));
+	let lon = (lon0 + Math.atan2(xn, z * cosLat0 - yn * sinLat0)) * 180 / Math.PI;
+	lon = ((lon + 180) % 360 + 360) % 360 - 180;
+	return { lon, lat: lat * 180 / Math.PI };
+}
+
+function globeNightSpansAt(y, sun, lon0, sinLat0, cosLat0) {
+	const spans = [];
+	let x0 = -1;
+	for (let x = 0; x <= MAP_W; x++) {
+		const p = x < MAP_W ? unprojectGlobe(x, y, lon0, sinLat0, cosLat0) : null;
+		const night = !!(p && isNightLonLat(p.lon, p.lat, sun));
+		if (night && x0 < 0)
+			x0 = x;
+		else if (!night && x0 >= 0) {
+			spans.push(x0, x);
+			x0 = -1;
+		}
 	}
+	return spans;
+}
+
+function projectGlobe(lon, lat, lon0, sinLat0, cosLat0) {
+	const latR = lat * Math.PI / 180;
+	const dlon = lon * Math.PI / 180 - lon0;
+	const sinLat = Math.sin(latR);
+	const cosLat = Math.cos(latR);
+	if (sinLat0 * sinLat + cosLat0 * cosLat * Math.cos(dlon) < 0)
+		return null;
+	return {
+		x: (GLOBE_CX + GLOBE_R * cosLat * Math.sin(dlon)) | 0,
+		y: (GLOBE_CY - GLOBE_R * (cosLat0 * sinLat - sinLat0 * cosLat * Math.cos(dlon))) | 0,
+	};
 }
 
 function pad2(n) {
@@ -123,27 +160,63 @@ function moodFor(code) {
 	}
 }
 
-function drawMap(sun) {
-	if (ensureMaps()) {
-		render.drawBitmap(dayMap, 0, 0);
-		const band = 5;
-		for (let y = 0; y < MAP_H; y += band) {
-			const h = y + band > MAP_H ? MAP_H - y : band;
-			const spans = nightSpansAt(y + (h >> 1), sun);
-			for (let i = 0; i < spans.length; i += 2) {
-				const x = spans[i];
-				const w = spans[i + 1] - x;
-				if (w > 0)
-					render.drawBitmap(nightMap, x, y, x, y, w, h);
-			}
-		}
-		return;
-	}
+function isLand(lon, lat) {
+	let x = ((lon + 180) / 360 * MASK_W) | 0;
+	let y = ((90 - lat) / 180 * MASK_H) | 0;
+	x = ((x % MASK_W) + MASK_W) % MASK_W;
+	if (y < 0)
+		y = 0;
+	else if (y >= MASK_H)
+		y = MASK_H - 1;
+	const i = y * MASK_W + x;
+	return (MASK[i >> 3] >> (i & 7)) & 1;
+}
 
-	render.fillRectangle(dayOcean, 0, 0, MAP_W, MAP_H);
-	const spans = nightSpansAt(MAP_H >> 1, sun);
-	for (let i = 0; i < spans.length; i += 2)
-		render.fillRectangle(nightOcean, spans[i], 0, spans[i + 1] - spans[i], MAP_H);
+function viewOrigin() {
+	if (state.lat !== null) {
+		let lat = state.lat;
+		if (lat > GLOBE_TILT_MAX)
+			lat = GLOBE_TILT_MAX;
+		else if (lat < -GLOBE_TILT_MAX)
+			lat = -GLOBE_TILT_MAX;
+		return { lon: state.lon, lat };
+	}
+	return { lon: -90, lat: 15 };
+}
+
+function drawMap(sun) {
+	const origin = viewOrigin();
+	const lon0 = origin.lon * Math.PI / 180;
+	const lat0 = origin.lat * Math.PI / 180;
+	const sinLat0 = Math.sin(lat0);
+	const cosLat0 = Math.cos(lat0);
+	const colors = [dayOcean, nightOcean, dayLand, nightLand];
+	render.fillRectangle(black, 0, 0, MAP_W, MAP_H);
+	for (let y = 0; y < MAP_H; y++) {
+		let runX = 0;
+		let runColor = -1;
+		const yn = (GLOBE_CY - (y + 0.5)) / GLOBE_R;
+		for (let x = 0; x <= MAP_W; x++) {
+			let color = -1;
+			if (x < MAP_W) {
+				const xn = (x + 0.5 - GLOBE_CX) / GLOBE_R;
+				const rr = xn * xn + yn * yn;
+				if (rr <= 1) {
+					const z = Math.sqrt(1 - rr);
+					const lat = Math.asin(Math.max(-1, Math.min(1, yn * cosLat0 + z * sinLat0))) * 180 / Math.PI;
+					let lon = (lon0 + Math.atan2(xn, z * cosLat0 - yn * sinLat0)) * 180 / Math.PI;
+					lon = ((lon + 180) % 360 + 360) % 360 - 180;
+					color = (isLand(lon, lat) ? 2 : 0) + (isNightLonLat(lon, lat, sun) ? 1 : 0);
+				}
+			}
+			if (color === runColor)
+				continue;
+			if (runColor >= 0)
+				render.fillRectangle(colors[runColor], runX, y, x - runX, 1);
+			runX = x;
+			runColor = color;
+		}
+	}
 }
 
 function drawScreen(event) {
@@ -159,10 +232,13 @@ function drawScreen(event) {
 	drawMap(sunAt(now));
 
 	if (state.lat !== null) {
-		const px = (((state.lon + 180) / 360) * MAP_W) | 0;
-		const py = (((90 - state.lat) / 180) * MAP_H) | 0;
-		render.fillRectangle(black, px - 2, py - 2, 5, 5);
-		render.fillRectangle(yellow, px - 1, py - 1, 3, 3);
+		const origin = viewOrigin();
+		const lat0 = origin.lat * Math.PI / 180;
+		const pin = projectGlobe(state.lon, state.lat, origin.lon * Math.PI / 180, Math.sin(lat0), Math.cos(lat0));
+		if (pin) {
+			render.fillRectangle(black, pin.x - 2, pin.y - 2, 5, 5);
+			render.fillRectangle(yellow, pin.x - 1, pin.y - 1, 3, 3);
+		}
 	}
 
 	render.fillRectangle(black, 0, hudY, w, h - hudY);
@@ -194,7 +270,7 @@ function drawScreen(event) {
 	}
 
 	const timeStr = formatTime(now);
-	const timeY = hudY + 6 + sparkH;
+	const timeY = hudY + 10 + sparkH;
 	render.drawText(timeStr, timeFont, white,
 		((w - render.getTextWidth(timeStr, timeFont)) / 2) | 0, timeY);
 
@@ -203,24 +279,14 @@ function drawScreen(event) {
 	render.drawText(dateStr, dateFont, white,
 		((w - render.getTextWidth(dateStr, dateFont)) / 2) | 0, dateY);
 
-	let weatherStr = "--C  WAIT";
+	let weatherStr = "--F  WAIT";
 	if (state.status === "offline" && !state.weather)
-		weatherStr = state.lat === null ? "--C  NO LOC" : "--C  OFFLINE";
+		weatherStr = state.lat === null ? "--F  NO LOC" : "--F  OFFLINE";
 	else if (state.weather)
-		weatherStr = String(state.weather.tempC) + "C  " + (state.status === "stale" ? "STALE" : moodFor(state.weather.code));
+		weatherStr = String(state.weather.tempF) + "F  " + (state.status === "stale" ? "STALE" : moodFor(state.weather.code));
 	const weatherY = dateY + 20;
 	render.drawText(weatherStr, dateFont, white,
 		((w - render.getTextWidth(weatherStr, dateFont)) / 2) | 0, weatherY);
-
-	const rise = state.weather && state.weather.sunrise
-		? pad2(state.weather.sunrise.getHours()) + ":" + pad2(state.weather.sunrise.getMinutes())
-		: "--:--";
-	const set = state.weather && state.weather.sunset
-		? pad2(state.weather.sunset.getHours()) + ":" + pad2(state.weather.sunset.getMinutes())
-		: "--:--";
-	const sunY = weatherY + 22;
-	render.drawText(rise, smallFont, gray, 8, sunY);
-	render.drawText(set, smallFont, gray, w - 8 - render.getTextWidth(set, smallFont), sunY);
 
 	render.end();
 }
@@ -264,7 +330,7 @@ function parseWeather(data) {
 		}
 	}
 	return {
-		tempC: Math.round(current.temperature_2m),
+		tempF: Math.round(current.temperature_2m),
 		code: current.weather_code,
 		hours,
 		sunrise: day >= 0 && Array.isArray(daily.sunrise) ? weatherDate(daily.sunrise[day]) : null,
@@ -400,6 +466,7 @@ async function getForecast(latitude, longitude, active, finish, fail) {
 			daily: "sunrise,sunset",
 			timeformat: "unixtime",
 			timezone: "auto",
+			temperature_unit: "fahrenheit",
 			forecast_days: 2
 		});
 		const response = await fetch(url);
@@ -430,10 +497,9 @@ watch.addEventListener("minutechange", event => {
 });
 watch.addEventListener("resize", drawScreen);
 watch.addEventListener("hourchange", () => {
-	if (state.lat === null)
-		requestLocation();
-	else
+	if (state.lat !== null)
 		fetchWeather(state.lat, state.lon, true);
+	requestLocation();
 });
 drawScreen();
 requestLocation();

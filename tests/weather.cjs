@@ -14,6 +14,8 @@ function boot(connected = true) {
     watch:{hour12:false, connected:{pebblekit:connected}, addEventListener(name, fn){events[name]=fn;}},
     setTimeout(fn, delay){const id=++serial; timers.set(id,{fn, at:now+delay}); return id;}, clearTimeout(id){timers.delete(id);},
     fetch(url){return new Promise((resolve,reject)=>requests.push({url:String(url), resolve, reject}));}});
+  const mask = fs.readFileSync(path.join(__dirname,'../src/embeddedjs/worldmask.js'),'utf8').replace(/^export /gm,'');
+  vm.runInContext(mask, context);
   const source = fs.readFileSync(path.join(__dirname,'../src/embeddedjs/main.js'),'utf8').replace(/^import .*;\r?\n/gm,'');
   vm.runInContext(source,context);
   return {context,sensors,requests,events,timers,texts, eval:code=>vm.runInContext(code,context),
@@ -49,11 +51,13 @@ test('forecast request and parser use UTC seconds with the matching daily entry'
   assert.equal(url.searchParams.get('daily'),'sunrise,sunset');
   assert.equal(url.searchParams.get('timeformat'),'unixtime');
   assert.equal(url.searchParams.get('timezone'),'auto');
+  assert.equal(url.searchParams.get('temperature_unit'),'fahrenheit');
   const sec=Date.UTC(2026,8,9)/1000;
   await h.respond({...valid(), hourly:{time:[sec+10*3600,sec+12*3600,sec+13*3600],precipitation_probability:[90,20,30]}, daily:{time:[sec-86400,sec,sec+86400],sunrise:[sec-64800,sec+21600,sec+108000],sunset:[sec-21600,sec+64800,sec+151200]}});
   assert.equal(h.eval('state.weather.hours.length'),1);
   assert.equal(h.eval('state.weather.hours[0].precip'),30);
   assert.equal(h.eval('state.weather.sunrise.getTime()'),(sec+21600)*1000);
+  assert.ok(h.texts.includes('21F  CLOUD'));
 });
 test('precipitation uses interval ends strictly after now, including within the hour',async()=>{
   const h=boot();
@@ -110,12 +114,12 @@ test('hung fetch times out and ignores late responses after retry success',async
   const h=boot(); h.sample(); const old=h.requests[0];
   await h.advance(30000); assert.equal(h.requests.length,2);
   await h.respond(valid()); old.resolve({ok:true,json:async()=>({current:{temperature_2m:99,weather_code:0}})}); await h.flush();
-  assert.equal(h.eval('state.weather.tempC'),21); assert.equal(h.timers.size,0);
+  assert.equal(h.eval('state.weather.tempF'),21); assert.equal(h.timers.size,0);
 });
 test('superseded fetch cannot overwrite a newer forecast',async()=>{
   const h=boot(); h.sample(); const old=h.requests[0];
-  h.events.hourchange(); await h.respond(valid()); old.resolve({ok:true,json:async()=>({current:{temperature_2m:99,weather_code:0}})}); await h.flush();
-  assert.equal(h.eval('state.weather.tempC'),21); assert.equal(h.timers.size,0);
+  h.events.hourchange(); h.sample(); await h.respond(valid()); old.resolve({ok:true,json:async()=>({current:{temperature_2m:99,weather_code:0}})}); await h.flush();
+  assert.equal(h.eval('state.weather.tempF'),21); assert.equal(h.timers.size,0);
 });
 test('cached weather is visibly stale on refresh failure and age expiry',async()=>{
   const h=boot(); h.sample(); await h.respond(valid());
@@ -139,7 +143,7 @@ test('HTTP and malformed JSON failures exhaust only one retry',async()=>{
   const h=boot(); h.sample();
   h.requests[0].resolve({ok:false,status:503}); await h.flush();
   assert.equal(h.eval('state.status'),'offline');
-  assert.ok(h.texts.includes('--C  OFFLINE'));
+  assert.ok(h.texts.includes('--F  OFFLINE'));
   await h.advance(10000); await h.respond({current:{temperature_2m:20}});
   await h.advance(120000);
   assert.equal(h.requests.length,2); assert.equal(h.timers.size,0); assert.equal(h.eval('state.weather'),null);
@@ -160,5 +164,28 @@ test('throwing location sample and constructor both settle with bounded retries'
   assert.equal(h.eval('state.status'),'offline'); assert.equal(h.sensors[0].closed,true);
   h.context.Location=class {constructor(){throw Error('permission');}};
   await h.advance(120000); assert.equal(h.timers.size,0); assert.equal(h.eval('state.status'),'offline');
+});
+test('globe recenters on GPS',()=>{
+  const h=boot();
+  const before=h.eval('viewOrigin()');
+  assert.equal(before.lon,-90); assert.equal(before.lat,15);
+  h.sample();
+  const origin=h.eval('viewOrigin()');
+  assert.equal(origin.lon,-97); assert.equal(origin.lat,30);
+  const p=h.eval('(()=>{const o=viewOrigin(); const lat0=o.lat*Math.PI/180; return unprojectGlobe(GLOBE_CX,GLOBE_CY,o.lon*Math.PI/180,Math.sin(lat0),Math.cos(lat0));})()');
+  assert.ok(Math.abs(p.lat-30)<3);
+  assert.ok(Math.abs(p.lon+97)<3);
+});
+test('globe tilt is clamped and the pin stays at true latitude',()=>{
+  const north=boot();
+  north.sensors.at(-1).emit({latitude:80,longitude:10});
+  const origin=north.eval('viewOrigin()');
+  assert.equal(origin.lat,40); assert.equal(origin.lon,10);
+  const pin=north.eval('(()=>{const o=viewOrigin(); const lat0=o.lat*Math.PI/180; return projectGlobe(state.lon,state.lat,o.lon*Math.PI/180,Math.sin(lat0),Math.cos(lat0));})()');
+  assert.ok(pin); assert.ok(pin.y<north.eval('GLOBE_CY'));
+  const south=boot();
+  south.sensors.at(-1).emit({latitude:-75,longitude:20});
+  const so=south.eval('viewOrigin()');
+  assert.equal(so.lat,-40); assert.equal(so.lon,20);
 });
 module.exports={boot,valid};

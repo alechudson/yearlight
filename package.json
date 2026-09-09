@@ -26,18 +26,7 @@
     ],
     "messageKeys": [],
     "resources": {
-      "media": [
-        {
-          "type": "bitmap",
-          "name": "IMAGE_WORLD_DAY",
-          "file": "img/world_day.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "IMAGE_WORLD_NIGHT",
-          "file": "img/world_night.png"
-        }
-      ]
+      "media": []
     }
   }
 }
