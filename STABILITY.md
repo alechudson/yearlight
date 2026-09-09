@@ -1,4 +1,4 @@
-# Day Night stabilization checkpoint
+# Stabilization checkpoint
 
 ## Verified
 

@@ -1,6 +1,6 @@
 {
-  "name": "daynight",
-  "author": "MakeAwesomeHappen",
+  "name": "watchface",
+  "author": "Alec Hudson",
   "version": "1.0.0",
   "keywords": [
     "pebble-app"
@@ -10,7 +10,7 @@
     "@moddable/pebbleproxy": "^0.2.0"
   },
   "pebble": {
-    "displayName": "Day Night",
+    "displayName": "Watchface",
     "uuid": "cf9c0d01-1aa2-44b2-a79f-644baa16d24c",
     "projectType": "moddable",
     "sdkVersion": "3",

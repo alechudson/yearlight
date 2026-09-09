@@ -1,4 +1,4 @@
-# Day Night
+# Watchface
 
 A Pebble Time 2 watchface: sunlight moving across a world map, with local
 weather, a 6-hour precip strip, and sunrise / sunset.
@@ -6,6 +6,10 @@ weather, a 6-hour precip strip, and sunrise / sunset.
 No branding chrome — just the planet, the time, and the sky where you are.
 
 Weather comes from [Open-Meteo](https://open-meteo.com) via the phone GPS.
+
+The on-watch name is `displayName` in `package.json` — change that when you
+pick a real name. UUID is unchanged so an already-installed build updates in
+place.
 
 ## Building & running
 
@@ -17,8 +21,8 @@ pebble install --phone <ip>           # install to a paired phone
 
 ## Target platforms
 
-Day Night targets **emery** (Pebble Time 2, 200 × 228). Other platforms are
-currently not supported.
+Targets **emery** (Pebble Time 2, 200 × 228). Other platforms are currently
+not supported.
 
 ## Stability checks
 
