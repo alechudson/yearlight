@@ -12,17 +12,17 @@
   },
   "post-fix": {
     "label": "post-fix",
-    "ms_per_tick": 0.27105508474576273,
-    "asin_per_tick": 382.9830508474576,
-    "atan2_per_tick": 382.9830508474576,
-    "sqrt_per_tick": 382.9830508474576,
-    "globe_rects_per_tick": 99.69491525423729,
-    "full_begins_per_tick": 0.11864406779661017,
-    "hud_begins_per_tick": 0.8813559322033898
+    "ms_per_tick": 0.15548871186440677,
+    "asin_per_tick": 218.5084745762712,
+    "atan2_per_tick": 218.5084745762712,
+    "sqrt_per_tick": 218.5084745762712,
+    "globe_rects_per_tick": 22.627118644067796,
+    "full_begins_per_tick": 0.01694915254237288,
+    "hud_begins_per_tick": 0.9830508474576272
   },
   "delta": {
-    "ms_per_tick": 0.1264160768507933,
-    "sqrt_per_tick": 0.11864406779661016,
-    "globe_rects_per_tick": 0.11863654699475595
+    "ms_per_tick": 0.07251763222563556,
+    "sqrt_per_tick": 0.06769159683279777,
+    "globe_rects_per_tick": 0.02692617991125454
   }
 }

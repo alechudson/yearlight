@@ -120,14 +120,15 @@ test('hourly refresh writes CMD once the phone is writable',()=>{
   h.events.hourchange();
   assert.equal(h.messages[0].sent.get('CMD'),1);
 });
-test('cached weather is visibly stale on error payload and age expiry',async()=>{
+test('cached weather stays ready on a failed refresh until it is two hours old',async()=>{
   const h=boot(); h.deliver(wx());
   h.deliver({error:1});
-  assert.equal(h.eval('state.status'),'stale'); assert.ok(h.texts.includes('21°!'));
+  assert.equal(h.eval('state.status'),'ready'); assert.ok(h.texts.includes('21°'));
+  assert.ok(!h.texts.includes('21°!'));
   h.deliver(wx());
   assert.equal(h.eval('state.status'),'ready');
   await h.advance(7200000); h.events.minutechange({date:new h.context.Date()});
-  assert.equal(h.eval('state.status'),'stale');
+  assert.equal(h.eval('state.status'),'stale'); assert.ok(h.texts.includes('21°!'));
 });
 test('daily selection follows location calendar day across UTC midnight',()=>{
   const h=boot();

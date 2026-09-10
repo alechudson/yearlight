@@ -57,3 +57,9 @@ export function litStarCount(now) {
 	const n = dayOfYear(now);
 	return n > STAR_N ? STAR_N : n;
 }
+
+export function isSeasonStar(index, year) {
+	const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0 ? 1 : 0;
+	const day = index + 1;
+	return day === 79 + leap || day === 172 + leap || day === 265 + leap || day === 355 + leap;
+}

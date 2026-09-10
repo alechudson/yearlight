@@ -69,18 +69,18 @@ test('minute ticks keep the clock moving without redrawing the globe', () => {
 	assert.deepEqual(h.begins[0], [0, 132, 200, 96]);
 	assert.equal(h.globeRects().length, 0);
 	assert.match(h.texts().join(' '), /:01/);
-	h.tick('2026-09-09T18:07:00Z');
+	h.tick('2026-09-09T18:29:00Z');
 	assert.equal(h.globeRects().length, 0);
-	assert.match(h.texts().join(' '), /:07/);
+	assert.match(h.texts().join(' '), /:29/);
 });
 
-test('the globe redraws when the terminator moves one 2x2 cell', () => {
+test('the globe redraws every half hour', () => {
 	const h = boot();
 	h.deliver(forecast());
-	h.tick('2026-09-09T18:08:00Z');
+	h.tick('2026-09-09T18:30:00Z');
 	assert.equal(h.begins[0].length, 0);
 	assert.ok(h.globeRects().length > 0);
-	assert.match(h.texts().join(' '), /:08/);
+	assert.match(h.texts().join(' '), /:00/);
 });
 
 test('a new location redraws the globe on the same minute', () => {

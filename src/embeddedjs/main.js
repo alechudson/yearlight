@@ -1,7 +1,7 @@
 import Poco from "commodetto/Poco";
 import Message from "pebble/message";
 import { MASK, MASK_W, MASK_H } from "worldmask";
-import { STAR_X, STAR_Y, STAR_SHAPE, litStarCount } from "yearstars";
+import { STAR_N, STAR_X, STAR_Y, STAR_SHAPE, litStarCount, isSeasonStar } from "yearstars";
 
 const MAP_W = 200;
 const MAP_H = 132;
@@ -14,12 +14,13 @@ const smallFont = new render.Font("Gothic-Bold", 14);
 const black = render.makeColor(0, 0, 0);
 const white = render.makeColor(255, 255, 255);
 const yellow = render.makeColor(255, 255, 0);
-const gray = render.makeColor(170, 170, 170);
-const nightBlue = render.makeColor(85, 85, 170);
-const moonBlue = render.makeColor(170, 170, 255);
-const dayOcean = render.makeColor(0, 85, 170);
-const nightOcean = render.makeColor(0, 0, 85);
-const dayLand = render.makeColor(0, 170, 0);
+const cyan = render.makeColor(0, 255, 255);
+const hudMuted = render.makeColor(85, 85, 85);
+const nightBlue = render.makeColor(0, 0, 255);
+const dayFill = render.makeColor(255, 170, 0);
+const dayOcean = render.makeColor(0, 85, 255);
+const nightOcean = render.makeColor(0, 0, 170);
+const dayLand = render.makeColor(0, 255, 0);
 const nightLand = render.makeColor(0, 85, 0);
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -73,12 +74,17 @@ function sunAt(now) {
 		cosX: Math.cos(x),
 		sinY: Math.sin(y),
 		cosY: Math.cos(y),
+		lon: x * 180 / Math.PI - 180,
+		lat: declination * 180 / Math.PI,
 	};
 }
 
+// sin(-0.833°): NOAA apparent sunrise (refraction + solar radius). Same cost as < 0.
+const NIGHT_SIN = Math.sin(-0.833 * Math.PI / 180);
+
 function isNightXY(x, sinY, cosY, sun) {
 	const xA = Math.PI * 2 * x / MAP_W;
-	return sun.sinY * sinY + sun.cosY * cosY * (sun.cosX * Math.cos(xA) + sun.sinX * Math.sin(xA)) < 0;
+	return sun.sinY * sinY + sun.cosY * cosY * (sun.cosX * Math.cos(xA) + sun.sinX * Math.sin(xA)) < NIGHT_SIN;
 }
 
 function nightSpansAt(y, sun) {
@@ -107,7 +113,7 @@ const GLOBE_TILT_MAX = 40;
 function isNightLonLat(lon, lat, sun) {
 	const xA = (lon + 180) * Math.PI / 180;
 	const latR = lat * Math.PI / 180;
-	return sun.sinY * Math.sin(-latR) + sun.cosY * Math.cos(latR) * (sun.cosX * Math.cos(xA) + sun.sinX * Math.sin(xA)) < 0;
+	return sun.sinY * Math.sin(-latR) + sun.cosY * Math.cos(latR) * (sun.cosX * Math.cos(xA) + sun.sinX * Math.sin(xA)) < NIGHT_SIN;
 }
 
 function unprojectGlobe(x, y, lon0, sinLat0, cosLat0) {
@@ -203,7 +209,7 @@ function viewOrigin() {
 	return { lon: -90, lat: 15 };
 }
 
-const TERMINATOR_MS = 8 * 60 * 1000;
+const TERMINATOR_MS = 30 * 60 * 1000;
 const globeDrawn = { lon: 9999, lat: 9999, step: -1, stars: -1 };
 
 function drawMap(sun) {
@@ -243,23 +249,28 @@ function drawMap(sun) {
 
 function drawYearStars(now) {
 	const n = litStarCount(now);
-	for (let i = 0; i < n; i++) {
+	const year = now.getFullYear();
+	for (let i = 0; i < STAR_N; i++) {
+		const season = isSeasonStar(i, year);
+		if (i >= n && !season)
+			continue;
+		const color = season ? cyan : white;
 		const x = STAR_X[i];
 		const y = STAR_Y[i];
 		const shape = STAR_SHAPE[i];
-		render.fillRectangle(white, x, y, 1, 1);
+		render.fillRectangle(color, x, y, 1, 1);
 		if (shape === 1)
-			render.fillRectangle(white, x + 1, y, 1, 1);
+			render.fillRectangle(color, x + 1, y, 1, 1);
 		else if (shape >= 2) {
-			render.fillRectangle(white, x - 1, y, 1, 1);
-			render.fillRectangle(white, x + 1, y, 1, 1);
-			render.fillRectangle(white, x, y - 1, 1, 1);
-			render.fillRectangle(white, x, y + 1, 1, 1);
+			render.fillRectangle(color, x - 1, y, 1, 1);
+			render.fillRectangle(color, x + 1, y, 1, 1);
+			render.fillRectangle(color, x, y - 1, 1, 1);
+			render.fillRectangle(color, x, y + 1, 1, 1);
 			if (shape === 3) {
-				render.fillRectangle(white, x - 1, y - 1, 1, 1);
-				render.fillRectangle(white, x + 1, y - 1, 1, 1);
-				render.fillRectangle(white, x - 1, y + 1, 1, 1);
-				render.fillRectangle(white, x + 1, y + 1, 1, 1);
+				render.fillRectangle(color, x - 1, y - 1, 1, 1);
+				render.fillRectangle(color, x + 1, y - 1, 1, 1);
+				render.fillRectangle(color, x - 1, y + 1, 1, 1);
+				render.fillRectangle(color, x + 1, y + 1, 1, 1);
 			}
 		}
 	}
@@ -320,7 +331,39 @@ function solarPhaseFor(now) {
 	return null;
 }
 
-const MOON_MARKER = [0x1c, 0x30, 0x60, 0x60, 0x71, 0x3e, 0x1c];
+const MOON_PHASES = [
+	[0x1c, 0x22, 0x41, 0x41, 0x41, 0x22, 0x1c],
+	[0x04, 0x0e, 0x0f, 0x0f, 0x0f, 0x0e, 0x04],
+	[0x0c, 0x1e, 0x1f, 0x1f, 0x1f, 0x1e, 0x0c],
+	[0x1c, 0x3e, 0x3f, 0x3f, 0x3f, 0x3e, 0x1c],
+	[0x1c, 0x3e, 0x7f, 0x7f, 0x7f, 0x3e, 0x1c],
+	[0x1c, 0x3e, 0x7e, 0x7e, 0x7e, 0x3e, 0x1c],
+	[0x18, 0x3c, 0x7c, 0x7c, 0x7c, 0x3c, 0x18],
+	[0x10, 0x38, 0x78, 0x78, 0x78, 0x38, 0x10],
+];
+
+function moonPhaseIndex(now) {
+	const jd = now.getTime() / 86400000 + 2440587.5;
+	let phase = (jd - 2451550.1) / 29.530588853;
+	phase -= Math.floor(phase);
+	return Math.round(phase * 8) % 8;
+}
+
+function drawMoonPhase(now, x, y, color) {
+	const rows = MOON_PHASES[moonPhaseIndex(now)];
+	for (let row = 0; row < rows.length; row++) {
+		for (let col = 0; col < 7; col++) {
+			if (rows[row] & (0x40 >> col))
+				render.fillRectangle(color, x + col * 2, y + row * 2, 2, 2);
+		}
+	}
+}
+
+function drawSolarDot(x, y) {
+	render.fillRectangle(white, x - 5, y - 5, 11, 11);
+	render.fillRectangle(black, x - 3, y - 4, 7, 9);
+	render.fillRectangle(black, x - 4, y - 3, 9, 7);
+}
 
 function drawSolarProgress(now, w) {
 	const weather = state.weather;
@@ -329,32 +372,20 @@ function drawSolarProgress(now, w) {
 	const left = 13;
 	const right = w - 14;
 	const y = 205;
-	render.fillRectangle(gray, left, y, right - left + 1, 1);
-	render.fillRectangle(white, left, y - 3, 1, 7);
-	render.fillRectangle(white, right, y - 3, 1, 7);
+	render.fillRectangle(black, left, y, right - left + 1, 1);
+	render.fillRectangle(black, left, y - 3, 1, 7);
+	render.fillRectangle(black, right, y - 3, 1, 7);
 	if (phase) {
 		const progress = (now - phase.start) / (phase.end - phase.start);
 		const x = left + Math.round(progress * (right - left));
-		render.fillRectangle(night ? nightBlue : yellow, left, y, x - left, 1);
-		if (night) {
-			// Clear the track behind the crescent so its dark cutout stays visible.
-			render.fillRectangle(black, x - 4, y - 4, 9, 9);
-			for (let row = 0; row < MOON_MARKER.length; row++) {
-				for (let col = 0; col < 7; col++) {
-					if (MOON_MARKER[row] & (0x40 >> col))
-						render.fillRectangle(moonBlue, x + col - 3, y + row - 3, 1, 1);
-				}
-			}
-		} else {
-			render.fillRectangle(yellow, x - 2, y - 2, 5, 5);
-			render.fillRectangle(yellow, x - 1, y - 3, 3, 7);
-		}
+		render.fillRectangle(night ? nightBlue : dayFill, left, y, x - left, 1);
+		drawSolarDot(x, y);
 	}
 	const offset = weather ? weather.utcOffset : 0;
 	const startText = (night ? "SET " : "RISE ") + formatSolarTime(phase && phase.start, offset);
 	const endText = (night ? "RISE " : "SET ") + formatSolarTime(phase && phase.end, offset);
-	render.drawText(startText, smallFont, gray, 9, 210);
-	render.drawText(endText, smallFont, gray,
+	render.drawText(startText, smallFont, black, 9, 210);
+	render.drawText(endText, smallFont, black,
 		w - 9 - render.getTextWidth(endText, smallFont), 210);
 }
 
@@ -374,11 +405,22 @@ function drawScreen(event) {
 
 	if (globeDirty) {
 		render.begin();
-		drawMap(sunAt(now));
+		const sun = sunAt(now);
+		drawMap(sun);
 		drawYearStars(now);
+		const lat0 = origin.lat * Math.PI / 180;
+		const sinLat0 = Math.sin(lat0);
+		const cosLat0 = Math.cos(lat0);
+		const lon0 = origin.lon * Math.PI / 180;
+		const sunPip = projectGlobe(sun.lon, sun.lat, lon0, sinLat0, cosLat0);
+		if (sunPip) {
+			render.fillRectangle(black, sunPip.x - 2, sunPip.y - 1, 5, 3);
+			render.fillRectangle(black, sunPip.x - 1, sunPip.y - 2, 3, 5);
+			render.fillRectangle(yellow, sunPip.x - 1, sunPip.y, 3, 1);
+			render.fillRectangle(yellow, sunPip.x, sunPip.y - 1, 1, 3);
+		}
 		if (state.lat !== null) {
-			const lat0 = origin.lat * Math.PI / 180;
-			const pin = projectGlobe(state.lon, state.lat, origin.lon * Math.PI / 180, Math.sin(lat0), Math.cos(lat0));
+			const pin = projectGlobe(state.lon, state.lat, lon0, sinLat0, cosLat0);
 			if (pin) {
 				render.fillRectangle(black, pin.x - 2, pin.y - 2, 5, 5);
 				render.fillRectangle(yellow, pin.x - 1, pin.y - 1, 3, 3);
@@ -391,24 +433,25 @@ function drawScreen(event) {
 	} else
 		render.begin(0, hudY, w, h - hudY);
 
-	render.fillRectangle(black, 0, hudY, w, h - hudY);
+	render.fillRectangle(white, 0, hudY, w, h - hudY);
 
 	const timeStr = formatTime(now);
 	const period = watch.hour12 ? (now.getHours() < 12 ? "AM" : "PM") : "";
 	const timeW = render.getTextWidth(timeStr, timeFont);
-	const periodW = period ? render.getTextWidth(period, smallFont) + 5 : 0;
-	const timeX = ((w - timeW - periodW) / 2) | 0;
-	render.drawText(timeStr, timeFont, white, timeX, hudY);
+	const timeX = ((w - timeW) / 2) | 0;
+	render.drawText(timeStr, timeFont, black, timeX, hudY);
 	if (period)
-		render.drawText(period, smallFont, gray, timeX + timeW + 5, hudY + 26);
+		render.drawText(period, smallFont, hudMuted, timeX + timeW + 5, hudY + 26);
 
 	const dateStr = (DAYS[now.getDay()] + " " + MONTHS[now.getMonth()] + " " + now.getDate()).toUpperCase();
 	const stale = state.status === "stale";
 	const weatherStr = state.weather ? String(state.weather.tempF) + "°" + (stale ? "!" : "") : "--°";
-	render.drawText(dateStr, dateFont, white, 9, 178);
+	const ink = stale || !state.weather ? hudMuted : black;
+	render.drawText(dateStr, dateFont, black, 9, 178);
+	drawMoonPhase(now, 9 + render.getTextWidth(dateStr, dateFont) + 8, 181, black);
 	const weatherX = w - 9 - render.getTextWidth(weatherStr, dateFont);
-	render.drawText(weatherStr, dateFont, stale || !state.weather ? gray : yellow, weatherX, 178);
-	drawWeatherIcon(now, weatherX - 22, 181, stale ? gray : white);
+	render.drawText(weatherStr, dateFont, ink, weatherX, 178);
+	drawWeatherIcon(now, weatherX - 22, 181, ink);
 	drawSolarProgress(now, w);
 
 	render.end();
@@ -479,7 +522,10 @@ function validCoordinates(lat, lon) {
 }
 
 function weatherFailed() {
-	state.status = state.weather ? "stale" : "offline";
+	if (!state.weather)
+		state.status = "offline";
+	else if (Date.now() - state.updatedAt >= 7200000)
+		state.status = "stale";
 	drawScreen();
 }
 

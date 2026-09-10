@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const source = fs.readFileSync(path.join(__dirname, '../src/embeddedjs/yearstars.js'), 'utf8').replace(/^export /gm, '');
 const ctx = vm.createContext({Uint8Array, Date, Math});
-vm.runInContext(source + '\nthis.STAR_N=STAR_N;this.STAR_X=STAR_X;this.STAR_Y=STAR_Y;this.STAR_SHAPE=STAR_SHAPE;', ctx);
+vm.runInContext(source + '\nthis.STAR_N=STAR_N;this.STAR_X=STAR_X;this.STAR_Y=STAR_Y;this.STAR_SHAPE=STAR_SHAPE;this.dayOfYear=dayOfYear;this.litStarCount=litStarCount;this.isSeasonStar=isSeasonStar;', ctx);
 
 const CX = 100, CY = 66, R = 64;
 
@@ -57,4 +57,15 @@ test('early-year stars are scattered, not a sector', () => {
   }
   assert.ok(left > 20 && right > 20);
   assert.ok(top > 15 && bottom > 15);
+});
+
+test('season stars are the four solstice and equinox days', () => {
+  const days = [];
+  for (let i = 0; i < 365; i++)
+    if (ctx.isSeasonStar(i, 2026)) days.push(i + 1);
+  assert.deepEqual(days, [79, 172, 265, 355]);
+  const leap = [];
+  for (let i = 0; i < 365; i++)
+    if (ctx.isSeasonStar(i, 2028)) leap.push(i + 1);
+  assert.deepEqual(leap, [80, 173, 266, 356]);
 });

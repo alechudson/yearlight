@@ -82,3 +82,15 @@ test('projecting the view origin lands on the globe center', () => {
  assert.ok(Math.abs(pin.x - 100) <= 1);
  assert.ok(Math.abs(pin.y - 66) <= 1);
 });
+test('subsolar point is day and near Greenwich at noon', () => {
+ const sun = ctx.sunAt(new Date('2026-03-20T12:00:00Z'));
+ assert.ok(Math.abs(sun.lon) < 8);
+ assert.ok(Math.abs(sun.lat) < 3);
+ assert.equal(ctx.isNightLonLat(sun.lon, sun.lat, sun), false);
+ const dusk = ctx.sunAt(new Date('2026-03-20T18:00:00Z'));
+ assert.ok(Math.abs(dusk.lon + 90) < 8);
+});
+test('apparent sunset keeps Greenwich lit a few minutes after geometric dusk', () => {
+ assert.equal(night(0,0,'2026-03-20T18:00:00Z'), false);
+ assert.equal(night(0,0,'2026-03-20T18:12:00Z'), true);
+});
