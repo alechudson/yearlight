@@ -1,7 +1,7 @@
 # Watchface
 
 A Pebble Time 2 watchface: sunlight moving across a world map, with local
-weather, a 6-hour precip strip, and sunrise / sunset.
+weather, a 7-day high/low temperature trend, and sunrise / sunset.
 
 No branding chrome — just the planet, the time, and the sky where you are.
 

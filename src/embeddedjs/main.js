@@ -1,13 +1,14 @@
 import Poco from "commodetto/Poco";
-import Location from "embedded:sensor/Location";
+import Message from "pebble/message";
 import { MASK, MASK_W, MASK_H } from "worldmask";
+import { STAR_X, STAR_Y, STAR_SHAPE, litStarCount } from "yearstars";
 
 const MAP_W = 200;
 const MAP_H = 132;
 
 const render = new Poco(screen);
-const timeFont = new render.Font("Leco-Regular", 42);
-const dateFont = new render.Font("Gothic-Bold", 18);
+const timeFont = new render.Font("Bitham-Bold", 42);
+const dateFont = new render.Font("Gothic-Bold", 14);
 
 const black = render.makeColor(0, 0, 0);
 const white = render.makeColor(255, 255, 255);
@@ -30,7 +31,22 @@ const state = {
 };
 
 let lastDate = new Date();
-let locationSensor = null;
+let phoneWritable = false;
+const phone = new Message({
+	keys: ["PAYLOAD", "CMD"],
+	onReadable() {
+		const msg = this.read();
+		const payload = msg.get("PAYLOAD");
+		if (payload)
+			applyPayload(payload);
+	},
+	onWritable() {
+		phoneWritable = true;
+	},
+	onSuspend() {
+		phoneWritable = false;
+	}
+});
 
 function sunAt(now) {
 	// NOAA fractional-year approximation, using UTC rather than local time.
@@ -192,14 +208,14 @@ function drawMap(sun) {
 	const cosLat0 = Math.cos(lat0);
 	const colors = [dayOcean, nightOcean, dayLand, nightLand];
 	render.fillRectangle(black, 0, 0, MAP_W, MAP_H);
-	for (let y = 0; y < MAP_H; y++) {
+	for (let y = 0; y < MAP_H; y += 2) {
 		let runX = 0;
 		let runColor = -1;
-		const yn = (GLOBE_CY - (y + 0.5)) / GLOBE_R;
-		for (let x = 0; x <= MAP_W; x++) {
+		const yn = (GLOBE_CY - (y + 1)) / GLOBE_R;
+		for (let x = 0; x <= MAP_W; x += 2) {
 			let color = -1;
 			if (x < MAP_W) {
-				const xn = (x + 0.5 - GLOBE_CX) / GLOBE_R;
+				const xn = (x + 1 - GLOBE_CX) / GLOBE_R;
 				const rr = xn * xn + yn * yn;
 				if (rr <= 1) {
 					const z = Math.sqrt(1 - rr);
@@ -212,10 +228,67 @@ function drawMap(sun) {
 			if (color === runColor)
 				continue;
 			if (runColor >= 0)
-				render.fillRectangle(colors[runColor], runX, y, x - runX, 1);
+				render.fillRectangle(colors[runColor], runX, y, x - runX, 2);
 			runX = x;
 			runColor = color;
 		}
+	}
+}
+
+function drawYearStars(now) {
+	const n = litStarCount(now);
+	for (let i = 0; i < n; i++) {
+		const x = STAR_X[i];
+		const y = STAR_Y[i];
+		const shape = STAR_SHAPE[i];
+		render.fillRectangle(white, x, y, 1, 1);
+		if (shape === 1)
+			render.fillRectangle(white, x + 1, y, 1, 1);
+		else if (shape >= 2) {
+			render.fillRectangle(white, x - 1, y, 1, 1);
+			render.fillRectangle(white, x + 1, y, 1, 1);
+			render.fillRectangle(white, x, y - 1, 1, 1);
+			render.fillRectangle(white, x, y + 1, 1, 1);
+			if (shape === 3) {
+				render.fillRectangle(white, x - 1, y - 1, 1, 1);
+				render.fillRectangle(white, x + 1, y - 1, 1, 1);
+				render.fillRectangle(white, x - 1, y + 1, 1, 1);
+				render.fillRectangle(white, x + 1, y + 1, 1, 1);
+			}
+		}
+	}
+}
+
+function drawWeekTemps(days, top, w) {
+	const chartH = 16;
+	const left = 12;
+	const span = w - 24;
+	let minT = days[0].lo;
+	let maxT = days[0].hi;
+	for (let i = 1; i < days.length; i++) {
+		if (days[i].lo < minT)
+			minT = days[i].lo;
+		if (days[i].hi > maxT)
+			maxT = days[i].hi;
+	}
+	if (maxT < minT + 2) {
+		maxT += 1;
+		minT -= 1;
+	}
+	const n = days.length;
+	const range = maxT - minT;
+	function xAt(i) {
+		return left + ((i * span / (n - 1)) | 0);
+	}
+	function yAt(t) {
+		return top + (((maxT - t) * (chartH - 1) / range) | 0);
+	}
+	for (let i = 0; i < n; i++) {
+		const yHi = yAt(days[i].hi);
+		const yLo = yAt(days[i].lo);
+		const h = yLo - yHi + 1;
+		if (h > 0)
+			render.fillRectangle(white, xAt(i), yHi, 2, h);
 	}
 }
 
@@ -230,6 +303,7 @@ function drawScreen(event) {
 
 	render.begin();
 	drawMap(sunAt(now));
+	drawYearStars(now);
 
 	if (state.lat !== null) {
 		const origin = viewOrigin();
@@ -242,51 +316,29 @@ function drawScreen(event) {
 	}
 
 	render.fillRectangle(black, 0, hudY, w, h - hudY);
-	render.fillRectangle(white, 0, hudY, w, 1);
-
-	let sparkH = 0;
-	const hours = state.weather && state.weather.hours;
-	if (hours && hours.length > 1) {
-		let maxP = 0;
-		for (let i = 0; i < hours.length; i++) {
-			if (hours[i].precip > maxP)
-				maxP = hours[i].precip;
-		}
-		if (maxP >= 15) {
-			const base = hudY + 12;
-			const left = 16;
-			const span = w - 32;
-			let px = left;
-			let py = base - ((hours[0].precip * 8 / 100) | 0);
-			for (let i = 1; i < hours.length; i++) {
-				const nx = left + ((i * span / (hours.length - 1)) | 0);
-				const ny = base - ((hours[i].precip * 8 / 100) | 0);
-				render.drawLine(px, py, nx, ny, barFill, 2);
-				px = nx;
-				py = ny;
-			}
-			sparkH = 10;
-		}
-	}
 
 	const timeStr = formatTime(now);
-	const timeY = hudY + 10 + sparkH;
+	const timeY = hudY + 12;
 	render.drawText(timeStr, timeFont, white,
 		((w - render.getTextWidth(timeStr, timeFont)) / 2) | 0, timeY);
 
 	const dateStr = DAYS[now.getDay()] + ", " + MONTHS[now.getMonth()] + " " + now.getDate();
-	const dateY = timeY + 40;
-	render.drawText(dateStr, dateFont, white,
-		((w - render.getTextWidth(dateStr, dateFont)) / 2) | 0, dateY);
-
 	let weatherStr = "--F  WAIT";
 	if (state.status === "offline" && !state.weather)
 		weatherStr = state.lat === null ? "--F  NO LOC" : "--F  OFFLINE";
 	else if (state.weather)
 		weatherStr = String(state.weather.tempF) + "F  " + (state.status === "stale" ? "STALE" : moodFor(state.weather.code));
-	const weatherY = dateY + 20;
-	render.drawText(weatherStr, dateFont, white,
-		((w - render.getTextWidth(weatherStr, dateFont)) / 2) | 0, weatherY);
+	const metaY = timeY + 48;
+	const dateW = render.getTextWidth(dateStr, dateFont);
+	const weatherW = render.getTextWidth(weatherStr, dateFont);
+	const metaGap = 12;
+	const metaX = ((w - (dateW + metaGap + weatherW)) / 2) | 0;
+	render.drawText(dateStr, dateFont, white, metaX, metaY);
+	render.drawText(weatherStr, dateFont, white, metaX + dateW + metaGap, metaY);
+
+	const days = state.weather && state.weather.days;
+	if (days && days.length > 1)
+		drawWeekTemps(days, metaY + 18, w);
 
 	render.end();
 }
@@ -298,50 +350,45 @@ function weatherDate(seconds) {
 	return Number.isFinite(date.getTime()) ? date : null;
 }
 
+function validTempF(t) {
+	return Number.isFinite(t) && t >= -80 && t <= 140;
+}
+
 function parseWeather(data) {
 	const current = data && data.current;
 	const codes = [0, 1, 2, 3, 45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99];
 	if (!current || !Number.isFinite(current.temperature_2m) || codes.indexOf(current.weather_code) < 0)
 		return null;
-	const hours = [];
-	const hourly = data.hourly;
-	if (hourly && Array.isArray(hourly.time) && Array.isArray(hourly.precipitation_probability)) {
-		const nowMs = Date.now();
-		for (let i = 0; i < hourly.time.length && hours.length < 6; i++) {
-			const stamp = weatherDate(hourly.time[i]);
-			const precip = hourly.precipitation_probability[i];
-			// Precipitation timestamps mark the end of the preceding hour.
-			if (!stamp || stamp.getTime() <= nowMs || !Number.isFinite(precip) || precip < 0 || precip > 100)
-				continue;
-			hours.push({ precip });
-		}
-	}
 	const daily = data.daily;
 	// Unix timestamps remain UTC; only calendar-day matching uses the location offset.
 	const offset = Number.isFinite(data.utc_offset_seconds) ? data.utc_offset_seconds : 0;
 	const today = Math.floor((Date.now() / 1000 + offset) / 86400);
 	let day = -1;
+	const days = [];
 	if (daily && Array.isArray(daily.time)) {
 		for (let i = 0; i < daily.time.length; i++) {
-			if (Number.isFinite(daily.time[i]) && Math.floor((daily.time[i] + offset) / 86400) === today) {
+			if (!Number.isFinite(daily.time[i]))
+				continue;
+			const stamp = Math.floor((daily.time[i] + offset) / 86400);
+			if (day < 0 && stamp === today)
 				day = i;
-				break;
-			}
+			if (stamp < today || days.length >= 7)
+				continue;
+			const hi = daily.temperature_2m_max && daily.temperature_2m_max[i];
+			const lo = daily.temperature_2m_min && daily.temperature_2m_min[i];
+			if (!validTempF(hi) || !validTempF(lo) || hi < lo)
+				continue;
+			days.push({ hi, lo });
 		}
 	}
 	return {
 		tempF: Math.round(current.temperature_2m),
 		code: current.weather_code,
-		hours,
+		days,
 		sunrise: day >= 0 && Array.isArray(daily.sunrise) ? weatherDate(daily.sunrise[day]) : null,
 		sunset: day >= 0 && Array.isArray(daily.sunset) ? weatherDate(daily.sunset[day]) : null,
 	};
 }
-
-const WEATHER_TIMEOUT = 20000;
-const WEATHER_RETRY_DELAY = 10000;
-let locationGeneration = 0;
-let locationTimer = null;
 
 function validCoordinates(lat, lon) {
 	return Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lon) && Math.abs(lon) <= 180;
@@ -352,141 +399,46 @@ function weatherFailed() {
 	drawScreen();
 }
 
-function closeLocation() {
-	clearTimeout(locationTimer);
-	locationTimer = null;
-	try { locationSensor?.close(); } catch (_) {}
-	locationSensor = null;
-}
-
-function requestLocation(allowRetry = true) {
-	const generation = ++locationGeneration;
-	closeLocation();
-	let settled = false;
-	const fail = () => {
-		if (settled || generation !== locationGeneration)
-			return;
-		settled = true;
-		closeLocation();
-		weatherFailed();
-		if (allowRetry)
-			locationTimer = setTimeout(() => {
-				if (generation === locationGeneration)
-					requestLocation(false);
-			}, WEATHER_RETRY_DELAY);
-	};
+function applyPayload(text) {
+	let data;
 	try {
-		locationSensor = new Location({
-			onSample() {
-				if (settled || generation !== locationGeneration)
-					return;
-				try {
-					const sample = this.sample();
-					if (!sample || !validCoordinates(sample.latitude, sample.longitude)) {
-						fail();
-						return;
-					}
-					settled = true;
-					closeLocation();
-					state.lat = sample.latitude;
-					state.lon = sample.longitude;
-					drawScreen();
-					fetchWeather(state.lat, state.lon, true);
-				} catch (e) {
-					console.log("Location sample error: " + e);
-					fail();
-				}
-			}
-		});
-		locationTimer = setTimeout(fail, WEATHER_TIMEOUT);
+		data = JSON.parse(text);
 	} catch (e) {
-		console.log("Location error: " + e);
-		fail();
-	}
-}
-
-let forecastGeneration = 0;
-let forecastTimer = null;
-
-function fetchWeather(latitude, longitude, allowRetry = true) {
-	const generation = ++forecastGeneration;
-	clearTimeout(forecastTimer);
-	forecastTimer = null;
-	if (!validCoordinates(latitude, longitude)) {
+		console.log("payload json " + e);
 		weatherFailed();
 		return;
 	}
-	startForecast(latitude, longitude, allowRetry, generation);
-}
-
-function startForecast(latitude, longitude, allowRetry, generation) {
-	if (generation !== forecastGeneration)
-		return;
-	const deadline = Date.now() + WEATHER_TIMEOUT;
-	let settled = false;
-	const active = () => !settled && generation === forecastGeneration;
-	const finish = () => {
-		settled = true;
-		clearTimeout(forecastTimer);
-		forecastTimer = null;
-	};
-	const fail = () => {
-		if (!active())
-			return;
-		finish();
+	if (!data || data.error) {
 		weatherFailed();
-		if (allowRetry)
-			forecastTimer = setTimeout(() => startForecast(latitude, longitude, false, generation), WEATHER_RETRY_DELAY);
-	};
-	const connect = () => {
-		if (!active())
-			return;
-		if (Date.now() >= deadline) {
-			fail();
-			return;
-		}
-		if (!watch.connected.pebblekit) {
-			forecastTimer = setTimeout(connect, 1000);
-			return;
-		}
-		forecastTimer = setTimeout(fail, deadline - Date.now());
-		getForecast(latitude, longitude, active, finish, fail);
-	};
-	connect();
-}
-
-async function getForecast(latitude, longitude, active, finish, fail) {
-	try {
-		const url = new URL("https://api.open-meteo.com/v1/forecast");
-		url.search = new URLSearchParams({
-			latitude,
-			longitude,
-			current: "temperature_2m,weather_code",
-			hourly: "precipitation_probability",
-			daily: "sunrise,sunset",
-			timeformat: "unixtime",
-			timezone: "auto",
-			temperature_unit: "fahrenheit",
-			forecast_days: 2
-		});
-		const response = await fetch(url);
-		if (!active())
-			return;
-		if (!response.ok)
-			throw new Error("http " + response.status);
-		const parsed = parseWeather(await response.json());
-		if (!active())
-			return;
-		if (!parsed)
-			throw new Error("bad weather json");
-		finish();
-		state.weather = parsed;
-		state.updatedAt = Date.now();
-		state.status = "ready";
+		return;
+	}
+	const lat = Number(data.lat);
+	const lon = Number(data.lon);
+	if (!validCoordinates(lat, lon)) {
+		weatherFailed();
+		return;
+	}
+	state.lat = lat;
+	state.lon = lon;
+	const parsed = parseWeather(data.weather);
+	if (!parsed) {
 		drawScreen();
+		weatherFailed();
+		return;
+	}
+	state.weather = parsed;
+	state.updatedAt = Date.now();
+	state.status = "ready";
+	drawScreen();
+}
+
+function requestRefresh() {
+	if (!phoneWritable)
+		return;
+	try {
+		phone.write(new Map([["CMD", 1]]));
 	} catch (e) {
-		console.log("Weather fetch error: " + e);
-		fail();
+		console.log("refresh " + e);
 	}
 }
 
@@ -496,10 +448,9 @@ watch.addEventListener("minutechange", event => {
 	drawScreen(event);
 });
 watch.addEventListener("resize", drawScreen);
-watch.addEventListener("hourchange", () => {
-	if (state.lat !== null)
-		fetchWeather(state.lat, state.lon, true);
-	requestLocation();
-});
+watch.addEventListener("hourchange", requestRefresh);
 drawScreen();
-requestLocation();
+setTimeout(() => {
+	if (state.lat === null)
+		weatherFailed();
+}, 30000);

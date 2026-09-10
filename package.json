@@ -24,7 +24,10 @@
     "capabilities": [
       "location"
     ],
-    "messageKeys": [],
+    "messageKeys": [
+    "PAYLOAD",
+    "CMD"
+    ],
     "resources": {
       "media": []
     }
