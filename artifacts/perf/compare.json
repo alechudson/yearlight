@@ -1,0 +1,28 @@
+{
+  "unit": "host ms per minutechange tick, 59-tick steady window",
+  "HEAD": {
+    "label": "HEAD",
+    "ms_per_tick": 2.1441504237288136,
+    "asin_per_tick": 3228,
+    "atan2_per_tick": 3228,
+    "sqrt_per_tick": 3228,
+    "globe_rects_per_tick": 840.3389830508474,
+    "full_begins_per_tick": 1,
+    "hud_begins_per_tick": 0
+  },
+  "post-fix": {
+    "label": "post-fix",
+    "ms_per_tick": 0.27105508474576273,
+    "asin_per_tick": 382.9830508474576,
+    "atan2_per_tick": 382.9830508474576,
+    "sqrt_per_tick": 382.9830508474576,
+    "globe_rects_per_tick": 99.69491525423729,
+    "full_begins_per_tick": 0.11864406779661017,
+    "hud_begins_per_tick": 0.8813559322033898
+  },
+  "delta": {
+    "ms_per_tick": 0.1264160768507933,
+    "sqrt_per_tick": 0.11864406779661016,
+    "globe_rects_per_tick": 0.11863654699475595
+  }
+}

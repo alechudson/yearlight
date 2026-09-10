@@ -203,6 +203,10 @@ function viewOrigin() {
 	return { lon: -90, lat: 15 };
 }
 
+// 2x2 cells at the disc edge move about one cell every 8 minutes of Earth rotation.
+const TERMINATOR_MS = 8 * 60 * 1000;
+const globeDrawn = { lon: 9999, lat: 9999, step: -1, stars: -1 };
+
 function drawMap(sun) {
 	const origin = viewOrigin();
 	const lon0 = origin.lon * Math.PI / 180;
@@ -363,20 +367,30 @@ function drawScreen(event) {
 	const w = render.unobstructed.width;
 	const h = render.unobstructed.height;
 	const hudY = MAP_H;
+	const origin = viewOrigin();
+	const step = (now.getTime() / TERMINATOR_MS) | 0;
+	const stars = litStarCount(now);
+	const globeDirty = globeDrawn.lon !== origin.lon || globeDrawn.lat !== origin.lat
+		|| globeDrawn.step !== step || globeDrawn.stars !== stars;
 
-	render.begin();
-	drawMap(sunAt(now));
-	drawYearStars(now);
-
-	if (state.lat !== null) {
-		const origin = viewOrigin();
-		const lat0 = origin.lat * Math.PI / 180;
-		const pin = projectGlobe(state.lon, state.lat, origin.lon * Math.PI / 180, Math.sin(lat0), Math.cos(lat0));
-		if (pin) {
-			render.fillRectangle(black, pin.x - 2, pin.y - 2, 5, 5);
-			render.fillRectangle(yellow, pin.x - 1, pin.y - 1, 3, 3);
+	if (globeDirty) {
+		render.begin();
+		drawMap(sunAt(now));
+		drawYearStars(now);
+		if (state.lat !== null) {
+			const lat0 = origin.lat * Math.PI / 180;
+			const pin = projectGlobe(state.lon, state.lat, origin.lon * Math.PI / 180, Math.sin(lat0), Math.cos(lat0));
+			if (pin) {
+				render.fillRectangle(black, pin.x - 2, pin.y - 2, 5, 5);
+				render.fillRectangle(yellow, pin.x - 1, pin.y - 1, 3, 3);
+			}
 		}
-	}
+		globeDrawn.lon = origin.lon;
+		globeDrawn.lat = origin.lat;
+		globeDrawn.step = step;
+		globeDrawn.stars = stars;
+	} else
+		render.begin(0, hudY, w, h - hudY);
 
 	render.fillRectangle(black, 0, hudY, w, h - hudY);
 
@@ -518,7 +532,10 @@ watch.addEventListener("minutechange", event => {
 		state.status = "stale";
 	drawScreen(event);
 });
-watch.addEventListener("resize", drawScreen);
+watch.addEventListener("resize", event => {
+	globeDrawn.step = -1;
+	drawScreen(event);
+});
 watch.addEventListener("hourchange", requestRefresh);
 drawScreen();
 setTimeout(() => {

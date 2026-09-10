@@ -1,0 +1,41 @@
+{
+  "label": "HEAD",
+  "host": "darwin",
+  "ticks": 60,
+  "firstTick": {
+    "asin": 3228,
+    "atan2": 3228,
+    "sqrt": 3228,
+    "sin": 6476,
+    "cos": 6477,
+    "rects": 926,
+    "pixels": 59402,
+    "globeRects": 843,
+    "hudRects": 83,
+    "ns": 2366875,
+    "ms": 2.366875
+  },
+  "steady": {
+    "asin": 190452,
+    "atan2": 190452,
+    "sqrt": 190452,
+    "sin": 382084,
+    "cos": 382143,
+    "rects": 54477,
+    "pixels": 3505128,
+    "globeRects": 49580,
+    "hudRects": 4897,
+    "ticks": 59,
+    "ns": 126504875,
+    "ms": 126.504875,
+    "msPerTick": 2.1441504237288136,
+    "asinPerTick": 3228,
+    "atan2PerTick": 3228,
+    "sqrtPerTick": 3228,
+    "sinPerTick": 6476,
+    "cosPerTick": 6477,
+    "rectsPerTick": 923.3389830508474,
+    "globeRectsPerTick": 840.3389830508474,
+    "hudRectsPerTick": 83
+  }
+}
