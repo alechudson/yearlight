@@ -4,20 +4,126 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-test('phone requests yesterday solar events so a pre-dawn launch has the previous sunset', () => {
-  let url;
+const OPEN_METEO = {
+  latitude: 30, longitude: -97, generationtime_ms: 0.1, utc_offset_seconds: -18000,
+  timezone: 'America/Chicago', timezone_abbreviation: 'GMT-5', elevation: 149,
+  current_units: {time: 'unixtime', interval: 'seconds', temperature_2m: '°F', weather_code: 'wmo code'},
+  current: {time: 1789055100, interval: 900, temperature_2m: 87.7, weather_code: 1},
+  daily_units: {time: 'unixtime', sunrise: 'unixtime', sunset: 'unixtime'},
+  daily: {
+    time: [1, 2, 3],
+    sunrise: [10, 20, 30],
+    sunset: [11, 21, 31],
+    temperature_2m_max: [90, 91, 92],
+    temperature_2m_min: [70, 71, 72],
+  },
+};
+
+function loadPkjs(options = {}) {
+  const store = new Map(Object.entries(options.store || {}));
+  const xhrs = [];
+  const sent = [];
+  const timers = [];
+  const listeners = {};
   class XMLHttpRequest {
-    open(method, value) { assert.equal(method, 'GET'); url = new URL(value); }
-    send() {}
+    constructor() {
+      xhrs.push(this);
+    }
+    open(method, value) {
+      this.method = method;
+      this.url = value;
+    }
+    send() {
+      this.sent = true;
+    }
   }
-  const context = vm.createContext({XMLHttpRequest, Pebble:{addEventListener(){}}, console:{log(){}}});
+  const localStorage = {
+    getItem(key) { return store.has(key) ? store.get(key) : null; },
+    setItem(key, value) { store.set(key, String(value)); },
+  };
+  const geo = options.geo === undefined ? undefined : options.geo;
+  const context = vm.createContext({
+    XMLHttpRequest,
+    localStorage,
+    Pebble: {
+      addEventListener(name, fn) { listeners[name] = fn; },
+      sendAppMessage(dict, ok, err) { sent.push({dict, ok, err}); },
+    },
+    navigator: {geolocation: geo},
+    console: {log() {}},
+    setTimeout(fn, delay) { timers.push({fn, delay}); return timers.length; },
+    Date,
+    JSON,
+    Math,
+    isFinite,
+  });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/pkjs/index.js'), 'utf8'), context);
-  vm.runInContext('fetchWeather(30, -97)', context);
+  return {context, xhrs, sent, timers, listeners, store};
+}
+
+function payloadOf(entry) {
+  return JSON.parse(entry.dict.PAYLOAD);
+}
+
+test('phone requests yesterday through tomorrow so a pre-dawn launch has the previous sunset', () => {
+  const h = loadPkjs();
+  vm.runInContext('fetchWeather(30, -97)', h.context);
+  const url = new URL(h.xhrs[0].url);
   assert.equal(url.searchParams.get('past_days'), '1');
-  assert.equal(url.searchParams.get('forecast_days'), '7');
+  assert.equal(url.searchParams.get('forecast_days'), '2');
   assert.equal(url.searchParams.get('timeformat'), 'unixtime');
   assert.equal(url.searchParams.get('timezone'), 'auto');
   assert.equal(url.searchParams.get('temperature_unit'), 'fahrenheit');
-  assert.ok(url.searchParams.get('daily').split(',').includes('sunrise'));
-  assert.ok(url.searchParams.get('daily').split(',').includes('sunset'));
+  assert.deepEqual(url.searchParams.get('daily').split(','), ['sunrise', 'sunset']);
+});
+
+test('phone strips unused forecast fields before sending to the watch', () => {
+  const h = loadPkjs();
+  vm.runInContext('fetchWeather(30, -97)', h.context);
+  const xhr = h.xhrs[0];
+  xhr.status = 200;
+  xhr.responseText = JSON.stringify(OPEN_METEO);
+  xhr.onload();
+  const payload = payloadOf(h.sent[0]);
+  assert.equal(payload.lat, 30);
+  assert.equal(payload.lon, -97);
+  assert.equal(payload.weather.current.temperature_2m, 87.7);
+  assert.equal(payload.weather.daily.sunrise.length, 3);
+  assert.equal(payload.weather.daily.temperature_2m_max, undefined);
+  assert.equal(payload.weather.elevation, undefined);
+  assert.equal(payload.weather.current_units, undefined);
+  assert.ok(payload.updatedAt > 0);
+  assert.ok(JSON.stringify(payload).length < JSON.stringify({lat: 30, lon: -97, weather: OPEN_METEO}).length);
+  assert.equal(JSON.parse(h.store.get('wx1')).lat, 30);
+});
+
+test('ready replays the last forecast before waiting on GPS', () => {
+  const cache = {lat: 30, lon: -97, updatedAt: 1, weather: {current: {temperature_2m: 70, weather_code: 0}}};
+  const h = loadPkjs({
+    store: {wx1: JSON.stringify(cache)},
+    geo: {
+      getCurrentPosition() {},
+    },
+  });
+  h.listeners.ready();
+  assert.equal(h.sent.length, 1);
+  assert.deepEqual(payloadOf(h.sent[0]).weather.current, cache.weather.current);
+  assert.equal(h.xhrs.length, 1);
+  assert.match(h.xhrs[0].url, /latitude=30/);
+  assert.equal(h.xhrs.some(x => /ip-api/.test(x.url)), false);
+});
+
+test('hourly refresh fetches even when the cached coordinates have not moved', () => {
+  const cache = {lat: 30, lon: -97, updatedAt: 1, weather: {current: {temperature_2m: 70, weather_code: 0}}};
+  let geoCb;
+  const h = loadPkjs({
+    store: {wx1: JSON.stringify(cache)},
+    geo: {
+      getCurrentPosition(ok) { geoCb = ok; },
+    },
+  });
+  h.listeners.appmessage({payload: {CMD: 1}});
+  geoCb({coords: {latitude: 30, longitude: -97}});
+  assert.equal(h.xhrs.length, 1);
+  assert.match(h.xhrs[0].url, /latitude=30/);
 });

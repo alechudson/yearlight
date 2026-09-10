@@ -38,6 +38,8 @@ let lastDate = new Date();
 let phoneWritable = false;
 const phone = new Message({
 	keys: ["PAYLOAD", "CMD"],
+	input: 1024,
+	output: 256,
 	onReadable() {
 		const msg = this.read();
 		const payload = msg.get("PAYLOAD");
@@ -82,29 +84,6 @@ function sunAt(now) {
 // sin(-0.833°): NOAA apparent sunrise (refraction + solar radius). Same cost as < 0.
 const NIGHT_SIN = Math.sin(-0.833 * Math.PI / 180);
 
-function isNightXY(x, sinY, cosY, sun) {
-	const xA = Math.PI * 2 * x / MAP_W;
-	return sun.sinY * sinY + sun.cosY * cosY * (sun.cosX * Math.cos(xA) + sun.sinX * Math.sin(xA)) < NIGHT_SIN;
-}
-
-function nightSpansAt(y, sun) {
-	const yA = Math.PI * y / MAP_H - Math.PI / 2;
-	const sinY = Math.sin(yA);
-	const cosY = Math.cos(yA);
-	const spans = [];
-	let x0 = -1;
-	for (let x = 0; x <= MAP_W; x++) {
-		const night = x < MAP_W && isNightXY(x, sinY, cosY, sun);
-		if (night && x0 < 0)
-			x0 = x;
-		else if (!night && x0 >= 0) {
-			spans.push(x0, x);
-			x0 = -1;
-		}
-	}
-	return spans;
-}
-
 const GLOBE_CX = MAP_W / 2;
 const GLOBE_CY = MAP_H / 2;
 const GLOBE_R = 64;
@@ -114,35 +93,6 @@ function isNightLonLat(lon, lat, sun) {
 	const xA = (lon + 180) * Math.PI / 180;
 	const latR = lat * Math.PI / 180;
 	return sun.sinY * Math.sin(-latR) + sun.cosY * Math.cos(latR) * (sun.cosX * Math.cos(xA) + sun.sinX * Math.sin(xA)) < NIGHT_SIN;
-}
-
-function unprojectGlobe(x, y, lon0, sinLat0, cosLat0) {
-	const xn = (x + 0.5 - GLOBE_CX) / GLOBE_R;
-	const yn = (GLOBE_CY - (y + 0.5)) / GLOBE_R;
-	const rr = xn * xn + yn * yn;
-	if (rr > 1)
-		return null;
-	const z = Math.sqrt(1 - rr);
-	const lat = Math.asin(Math.max(-1, Math.min(1, yn * cosLat0 + z * sinLat0)));
-	let lon = (lon0 + Math.atan2(xn, z * cosLat0 - yn * sinLat0)) * 180 / Math.PI;
-	lon = ((lon + 180) % 360 + 360) % 360 - 180;
-	return { lon, lat: lat * 180 / Math.PI };
-}
-
-function globeNightSpansAt(y, sun, lon0, sinLat0, cosLat0) {
-	const spans = [];
-	let x0 = -1;
-	for (let x = 0; x <= MAP_W; x++) {
-		const p = x < MAP_W ? unprojectGlobe(x, y, lon0, sinLat0, cosLat0) : null;
-		const night = !!(p && isNightLonLat(p.lon, p.lat, sun));
-		if (night && x0 < 0)
-			x0 = x;
-		else if (!night && x0 >= 0) {
-			spans.push(x0, x);
-			x0 = -1;
-		}
-	}
-	return spans;
 }
 
 function projectGlobe(lon, lat, lon0, sinLat0, cosLat0) {
@@ -391,7 +341,7 @@ function drawSolarProgress(now, w) {
 		w - 9 - render.getTextWidth(endText, smallFont), 210);
 }
 
-function drawScreen(event) {
+function drawScreen(event, allowDefaultGlobe) {
 	const now = event?.date ?? lastDate;
 	if (event?.date)
 		lastDate = event.date;
@@ -402,10 +352,14 @@ function drawScreen(event) {
 	const origin = viewOrigin();
 	const step = (now.getTime() / TERMINATOR_MS) | 0;
 	const stars = litStarCount(now);
-	const globeDirty = globeDrawn.lon !== origin.lon || globeDrawn.lat !== origin.lat
-		|| globeDrawn.step !== step || globeDrawn.stars !== stars;
+	const canShade = state.lat !== null || allowDefaultGlobe;
+	const globeDirty = canShade && (globeDrawn.lon !== origin.lon || globeDrawn.lat !== origin.lat
+		|| globeDrawn.step !== step || globeDrawn.stars !== stars);
 
-	if (globeDirty) {
+	if (!canShade) {
+		render.begin();
+		render.fillRectangle(black, 0, 0, MAP_W, MAP_H);
+	} else if (globeDirty) {
 		render.begin();
 		const sun = sunAt(now);
 		drawMap(sun);
@@ -466,10 +420,6 @@ function weatherDate(seconds) {
 	return Number.isFinite(date.getTime()) ? date : null;
 }
 
-function validTempF(t) {
-	return Number.isFinite(t) && t >= -80 && t <= 140;
-}
-
 function parseWeather(data) {
 	const current = data && data.current;
 	const codes = [0, 1, 2, 3, 45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99];
@@ -479,33 +429,22 @@ function parseWeather(data) {
 	// Unix timestamps remain UTC; only calendar-day matching uses the location offset.
 	const offset = Number.isFinite(data.utc_offset_seconds) ? data.utc_offset_seconds : 0;
 	const today = Math.floor((Date.now() / 1000 + offset) / 86400);
-	let day = -1;
-	const days = [];
 	const solarDays = [];
 	if (daily && Array.isArray(daily.time)) {
 		for (let i = 0; i < daily.time.length; i++) {
 			if (!Number.isFinite(daily.time[i]))
 				continue;
 			const stamp = Math.floor((daily.time[i] + offset) / 86400);
-			if (day < 0 && stamp === today)
-				day = i;
 			// Retain yesterday's sunset for a fresh launch or refresh before dawn.
 			if (stamp < today - 1)
 				continue;
-			if (solarDays.length < 8) {
+			if (solarDays.length < 4) {
 				solarDays.push({
 					day: stamp,
 					sunrise: Array.isArray(daily.sunrise) ? weatherDate(daily.sunrise[i]) : null,
 					sunset: Array.isArray(daily.sunset) ? weatherDate(daily.sunset[i]) : null,
 				});
 			}
-			if (stamp < today || days.length >= 7)
-				continue;
-			const hi = daily.temperature_2m_max && daily.temperature_2m_max[i];
-			const lo = daily.temperature_2m_min && daily.temperature_2m_min[i];
-			if (!validTempF(hi) || !validTempF(lo) || hi < lo)
-				continue;
-			days.push({ hi, lo });
 		}
 	}
 	return {
@@ -513,9 +452,6 @@ function parseWeather(data) {
 		code: current.weather_code,
 		utcOffset: offset,
 		solarDays,
-		days,
-		sunrise: day >= 0 && Array.isArray(daily.sunrise) ? weatherDate(daily.sunrise[day]) : null,
-		sunset: day >= 0 && Array.isArray(daily.sunset) ? weatherDate(daily.sunset[day]) : null,
 	};
 }
 
@@ -528,7 +464,7 @@ function weatherFailed() {
 		state.status = "offline";
 	else if (Date.now() - state.updatedAt >= 7200000)
 		state.status = "stale";
-	drawScreen();
+	drawScreen(undefined, true);
 }
 
 function applyPayload(text) {
@@ -559,8 +495,9 @@ function applyPayload(text) {
 		return;
 	}
 	state.weather = parsed;
-	state.updatedAt = Date.now();
-	state.status = "ready";
+	const fetchedAt = Number(data.updatedAt);
+	state.updatedAt = Number.isFinite(fetchedAt) && fetchedAt > 0 ? fetchedAt : Date.now();
+	state.status = Date.now() - state.updatedAt >= 7200000 ? "stale" : "ready";
 	drawScreen();
 }
 
@@ -585,6 +522,10 @@ watch.addEventListener("resize", event => {
 });
 watch.addEventListener("hourchange", requestRefresh);
 drawScreen();
+setTimeout(() => {
+	if (state.lat === null)
+		drawScreen(undefined, true);
+}, 2000);
 setTimeout(() => {
 	if (state.lat === null)
 		weatherFailed();

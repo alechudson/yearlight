@@ -10,7 +10,7 @@ int main(void) {
     .recordSize = sizeof(cr),
     .stack = 6144,
     .slot = 24576,
-    .chunk = 16384, // All three pools must be explicit; reserve native RAM for maps/Bluetooth.
+    .chunk = 24576, // All three pools must be explicit; reserve native RAM for maps/Bluetooth.
     .flags = kModdableCreationFlagDebug,
   };
   moddable_createMachine(&cr);
@@ -19,7 +19,7 @@ int main(void) {
     .recordSize = sizeof(cr),
     .stack = 6144,
     .slot = 24576,
-    .chunk = 16384, // All three pools must be explicit; reserve native RAM for maps/Bluetooth.
+    .chunk = 24576, // All three pools must be explicit; reserve native RAM for maps/Bluetooth.
     .flags = kModdableCreationFlagLogInstrumentation,
   };
   moddable_createMachine(&cr);

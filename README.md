@@ -10,7 +10,7 @@ The **Daylight** layout keeps the globe and year stars unchanged:
 - Time follows the watch's 12/24-hour setting; temperatures are Fahrenheit.
 - `!` marks stale weather. Missing solar endpoints leave the ruler unfilled with `--:--` labels.
 
-The phone requests seven forecast days plus yesterday's solar events, so a
+The phone requests yesterday through tomorrow's solar events, so a
 fresh launch before dawn can locate the start of the night without guessing.
 
 No branding chrome — just the planet, the time, and the sky where you are.

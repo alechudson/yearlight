@@ -1,0 +1,24 @@
+{
+  "files": {
+    "mainBytes": 17368,
+    "worldmaskBytes": 5426,
+    "yearstarsBytes": 3771
+  },
+  "pools": {
+    "stack": 6144,
+    "slot": 24576,
+    "chunk": 24576
+  },
+  "appMessage": {
+    "input": 1024,
+    "output": 256
+  },
+  "liveData": {
+    "maskBytes": 2500,
+    "starBytes": 1095,
+    "weatherIconNumbers": 112,
+    "moonPhaseNumbers": 56,
+    "fonts": 3
+  },
+  "reservedNative": 56576
+}

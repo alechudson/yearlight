@@ -1,0 +1,25 @@
+{
+  "source": "pebble logs --emulator emery xsHost instruments",
+  "fields": "App bytes free, Chunk used, Chunk available, Slot used, Slot available, Garbage collections",
+  "old_chunk_16384": {
+    "boot": {"chunk_used": 3968, "chunk_avail": 16384, "slot_used": 8528, "app_free": 73936},
+    "after_weather": {"chunk_used": 16312, "chunk_avail": 16384, "slot_used": 17952, "gc": 42, "app_free": 55972}
+  },
+  "chunk_20480": {
+    "after_weather_peak": {"chunk_used": 16560, "chunk_avail": 20480, "gc": 39},
+    "settled": {"chunk_used": 15632, "chunk_avail": 20480}
+  },
+  "chunk_24576": {
+    "boot": {"chunk_used": 3968, "chunk_avail": 24576, "slot_used": 8528, "app_free": 65752},
+    "after_weather_peak": {"chunk_used": 23948, "chunk_avail": 24576, "slot_used": 23392, "gc": 37, "app_free": 47788},
+    "settled": {"chunk_used": 18264, "chunk_avail": 24576, "slot_used": 18400}
+  },
+  "current_appmessage_capped": {
+    "note": "2026-09-10 emulator after 1024/256 AppMessage and leftover deletes",
+    "native_heap_on_swap": {"total": 122576, "used": 58984},
+    "boot": {"chunk_used": 3836, "chunk_avail": 24576, "slot_used": 8416, "stack_used": 1824, "app_free": 67116},
+    "after_weather": {"chunk_used": 15468, "slot_used": 19872, "stack_used": 3296, "gc": 31, "app_free": 64220},
+    "globe_shade": {"chunk_used": 15868, "slot_used": 20256, "float_ops": 165747},
+    "settled": {"chunk_used": 16204, "slot_used": 20640, "stack_used": 288, "app_free": 64272}
+  }
+}

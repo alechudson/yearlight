@@ -137,7 +137,6 @@ test('a fresh pre-dawn launch keeps yesterday sunset while the temperature forec
   data.weather.daily.temperature_2m_min.unshift(80);
   h.deliver(data);
   assert.deepEqual(h.texts().filter(t => /^(RISE|SET) /.test(t)), ['SET 19:00','RISE 07:00']);
-  assert.equal(h.eval('state.weather.days[0].hi'), 89);
   assert.equal(h.eval('solarPhaseFor(new Date()).night'), true);
   assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0x0000ff && c.width > 0));
   h.deliver(data);

@@ -60,35 +60,20 @@ test('phone payload sets location and weather', ()=>{
 test('payload parser uses UTC seconds with the matching daily entry', ()=>{
   const h=boot();
   const sec=Date.UTC(2026,8,9)/1000;
-  h.deliver(wx({...valid(), daily:{time:[sec-86400,sec,sec+86400],temperature_2m_max:[99,91,88],temperature_2m_min:[50,72,68],sunrise:[sec-64800,sec+21600,sec+108000],sunset:[sec-21600,sec+64800,sec+151200]}}));
-  assert.equal(h.eval('state.weather.days.length'),2);
-  assert.equal(h.eval('state.weather.days[0].hi'),91);
-  assert.equal(h.eval('state.weather.days[0].lo'),72);
-  assert.equal(h.eval('state.weather.sunrise.getTime()'),(sec+21600)*1000);
-});
-test('daily highs and lows start at the location calendar day and skip invalid samples',()=>{
-  const h=boot();
-  const sec=Date.UTC(2026,8,9)/1000;
-  h.context.data={...valid(),daily:{time:[sec-86400,sec,sec+86400,sec+2*86400,sec+3*86400,sec+4*86400,sec+5*86400,sec+6*86400],temperature_2m_max:[80,81,82,83,NaN,85,86,87],temperature_2m_min:[60,61,70,62,63,64,65,66]}};
-  const days=h.eval('parseWeather(data).days');
-  assert.equal(days.length,6);
-  assert.equal(days[0].hi,81);
-  assert.equal(days[2].hi,83);
-  assert.equal(days[3].hi,85);
-  h.context.data={...valid(),daily:{time:[sec],temperature_2m_max:[20],temperature_2m_min:[30]}};
-  assert.equal(h.eval('parseWeather(data).days.length'),0);
+  h.deliver(wx({...valid(), daily:{time:[sec-86400,sec,sec+86400],sunrise:[sec-64800,sec+21600,sec+108000],sunset:[sec-21600,sec+64800,sec+151200]}}));
+  assert.equal(h.eval('state.weather.solarDays.length'),3);
+  assert.equal(h.eval('state.weather.solarDays[1].sunrise.getTime()'),(sec+21600)*1000);
 });
 test('parser rejects invalid current data and omits invalid optional samples',()=>{
   const h=boot();
   for(const value of [NaN,Infinity,null,'20']) { h.context.data={current:{temperature_2m:value,weather_code:1}}; assert.equal(h.eval('parseWeather(data)'),null); }
   for(const code of [undefined,null,NaN,Infinity,-1,4,100,'1']) { h.context.data={current:{temperature_2m:20,weather_code:code}}; assert.equal(h.eval('parseWeather(data)'),null); }
   const sec=Date.UTC(2026,8,9)/1000;
-  h.context.data={...valid(),daily:{time:[sec],sunrise:[null],sunset:['bad'],temperature_2m_max:[null],temperature_2m_min:[0]}};
-  assert.equal(h.eval('parseWeather(data).days.length'),0);
-  assert.equal(h.eval('parseWeather(data).sunrise'),null);
-  assert.equal(h.eval('parseWeather(data).sunset'),null);
+  h.context.data={...valid(),daily:{time:[sec],sunrise:[null],sunset:['bad']}};
+  assert.equal(h.eval('parseWeather(data).solarDays[0].sunrise'),null);
+  assert.equal(h.eval('parseWeather(data).solarDays[0].sunset'),null);
   h.context.data={...valid()};
-  assert.equal(h.eval('parseWeather(data).days.length'),0);
+  assert.equal(h.eval('parseWeather(data).solarDays.length'),0);
 });
 test('bad payload and missing location stay offline',()=>{
   const h=boot();
@@ -101,6 +86,14 @@ test('bad payload and missing location stay offline',()=>{
   h.deliver({lat:91,lon:0,weather:valid()});
   assert.equal(h.eval('state.lat'),null);
 });
+test('a cached payload older than two hours is already stale',()=>{
+  const h=boot();
+  const wxData=wx();
+  wxData.updatedAt=Date.UTC(2026,8,9,9);
+  h.deliver(wxData);
+  assert.equal(h.eval('state.status'),'stale');
+  assert.ok(h.texts.includes('21°!'));
+});
 test('location can land without a usable forecast',()=>{
   const h=boot();
   h.deliver({lat:30,lon:-97,weather:{}});
@@ -111,6 +104,13 @@ test('silent phone times out instead of waiting forever',async()=>{
   const h=boot(); await h.advance(30000);
   assert.equal(h.eval('state.status'),'offline');
   assert.ok(h.texts.includes('--°'));
+});
+test('a default globe appears after two seconds if location has not arrived',async()=>{
+  const h=boot();
+  assert.equal(h.eval('globeDrawn.lon'),9999);
+  await h.advance(2000);
+  assert.equal(h.eval('state.status'),'loading');
+  assert.notEqual(h.eval('globeDrawn.lon'),9999);
 });
 test('hourly refresh writes CMD once the phone is writable',()=>{
   const h=boot();
@@ -134,9 +134,9 @@ test('daily selection follows location calendar day across UTC midnight',()=>{
   const h=boot();
   const sec=Date.UTC(2026,8,9)/1000;
   h.context.data={...valid(),utc_offset_seconds:-18000,daily:{time:[sec+18000,sec+104400],sunrise:[sec+39600,sec+126000],sunset:[sec+86400,sec+172800]}};
-  assert.equal(h.eval('parseWeather(data).sunrise.getTime()'),(sec+39600)*1000);
+  assert.equal(h.eval('parseWeather(data).solarDays[0].sunrise.getTime()'),(sec+39600)*1000);
   h.context.data={...valid(),utc_offset_seconds:50400,daily:{time:[sec-50400,sec+36000],sunrise:[sec-28800,sec+57600],sunset:[sec+14400,sec+100800]}};
-  assert.equal(h.eval('parseWeather(data).sunrise.getTime()'),(sec+57600)*1000);
+  assert.equal(h.eval('parseWeather(data).solarDays[1].sunrise.getTime()'),(sec+57600)*1000);
 });
 test('globe recenters on payload location',()=>{
   const h=boot();
@@ -145,9 +145,10 @@ test('globe recenters on payload location',()=>{
   h.deliver(wx());
   const origin=h.eval('viewOrigin()');
   assert.equal(origin.lon,-97); assert.equal(origin.lat,30);
-  const p=h.eval('(()=>{const o=viewOrigin(); const lat0=o.lat*Math.PI/180; return unprojectGlobe(GLOBE_CX,GLOBE_CY,o.lon*Math.PI/180,Math.sin(lat0),Math.cos(lat0));})()');
-  assert.ok(Math.abs(p.lat-30)<3);
-  assert.ok(Math.abs(p.lon+97)<3);
+  const pin=h.eval('(()=>{const o=viewOrigin(); const lat0=o.lat*Math.PI/180; return projectGlobe(state.lon,state.lat,o.lon*Math.PI/180,Math.sin(lat0),Math.cos(lat0));})()');
+  assert.ok(pin);
+  assert.ok(Math.abs(pin.x-100)<=2);
+  assert.ok(Math.abs(pin.y-66)<=3);
 });
 test('globe tilt is clamped and the pin stays at true latitude',()=>{
   const north=boot();

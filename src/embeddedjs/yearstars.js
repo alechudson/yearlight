@@ -1,7 +1,7 @@
 // 365 year-progress stars in the map void. Packed as x,y,shape triples.
 // shape: 0=dot 1=pair 2=cross 3=diamond. Order is the fill sequence.
 export const STAR_N = 365;
-const STAR_HEX =
+let STAR_HEX =
 "887c00bb7400b62501037a01c34b00af0d00b769002a7100c06a00bd4500a62900157800347f0144" +
 "7e00a62d009914002b0800262500b15d001a5c00aa4f00146c00051b01041701c53d00118000bf61" +
 "01c20900231f008c0900aa3e01ad1400205200c56c00b34d00aa1f02c443002b7a000e18000f1403" +
@@ -46,6 +46,7 @@ for (let i = 0; i < STAR_N; i++) {
 	STAR_Y[i] = ((b2 < 58 ? b2 - 48 : b2 - 87) << 4) | (b3 < 58 ? b3 - 48 : b3 - 87);
 	STAR_SHAPE[i] = ((b4 < 58 ? b4 - 48 : b4 - 87) << 4) | (b5 < 58 ? b5 - 48 : b5 - 87);
 }
+STAR_HEX = null;
 
 export function dayOfYear(now) {
 	const start = Date.UTC(now.getFullYear(), 0, 1);

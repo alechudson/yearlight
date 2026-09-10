@@ -24,5 +24,18 @@
     "ms_per_tick": 0.07251763222563556,
     "sqrt_per_tick": 0.06769159683279777,
     "globe_rects_per_tick": 0.02692617991125454
+  },
+  "load": {
+    "unit": "boot and first-payload globe inverse-trig calls",
+    "baseline": {
+      "boot_asin": 3228,
+      "payload_asin": 3228,
+      "payload_ms": 2.701875
+    },
+    "load-fix": {
+      "boot_asin": 0,
+      "payload_asin": 3228,
+      "payload_ms": 5.802375
+    }
   }
 }

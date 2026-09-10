@@ -13,7 +13,11 @@ for path in sorted(PERF.glob("*.json")):
     if path.name == "compare.json":
         continue
     data = json.loads(path.read_text())
+    if "steady" not in data:
+        continue
     steady = data["steady"]
+    boot = data.get("bootDraw") or {}
+    payload = data.get("payloadDraw") or {}
     rows.append({
         "label": data["label"],
         "ms_per_tick": steady["msPerTick"],
@@ -23,6 +27,9 @@ for path in sorted(PERF.glob("*.json")):
         "globe_rects_per_tick": steady["globeRectsPerTick"],
         "full_begins_per_tick": steady.get("fullBeginsPerTick", 1),
         "hud_begins_per_tick": steady.get("hudBeginsPerTick", 0),
+        "boot_asin": boot.get("asin"),
+        "payload_asin": payload.get("asin"),
+        "payload_ms": payload.get("ms"),
     })
 
 conn = sqlite3.connect(DB)
@@ -50,14 +57,34 @@ head = by_label["HEAD"]
 post = by_label["post-fix"]
 compare = {
     "unit": "host ms per minutechange tick, 59-tick steady window",
-    "HEAD": head,
-    "post-fix": post,
+    "HEAD": {k: head[k] for k in ("label", "ms_per_tick", "asin_per_tick", "atan2_per_tick",
+                                  "sqrt_per_tick", "globe_rects_per_tick", "full_begins_per_tick",
+                                  "hud_begins_per_tick")},
+    "post-fix": {k: post[k] for k in ("label", "ms_per_tick", "asin_per_tick", "atan2_per_tick",
+                                      "sqrt_per_tick", "globe_rects_per_tick", "full_begins_per_tick",
+                                      "hud_begins_per_tick")},
     "delta": {
         "ms_per_tick": post["ms_per_tick"] / head["ms_per_tick"],
         "sqrt_per_tick": post["sqrt_per_tick"] / head["sqrt_per_tick"] if head["sqrt_per_tick"] else None,
         "globe_rects_per_tick": post["globe_rects_per_tick"] / head["globe_rects_per_tick"],
     },
 }
+if "baseline" in by_label and "load-fix" in by_label:
+    before = by_label["baseline"]
+    after = by_label["load-fix"]
+    compare["load"] = {
+        "unit": "boot and first-payload globe inverse-trig calls",
+        "baseline": {
+            "boot_asin": before["boot_asin"],
+            "payload_asin": before["payload_asin"],
+            "payload_ms": before["payload_ms"],
+        },
+        "load-fix": {
+            "boot_asin": after["boot_asin"],
+            "payload_asin": after["payload_asin"],
+            "payload_ms": after["payload_ms"],
+        },
+    }
 OUT.write_text(json.dumps(compare, indent=2) + "\n")
 print(json.dumps(compare, indent=2))
 print(f"wrote {OUT}")

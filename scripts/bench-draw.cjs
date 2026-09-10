@@ -98,7 +98,13 @@ function snapshot(stats) {
 }
 
 const h = boot(mainSource);
+const bootDraw = snapshot(h.stats);
+h.resetStats();
+const tPayload = process.hrtime.bigint();
 h.deliver(forecast());
+const payloadNs = Number(process.hrtime.bigint() - tPayload);
+const payloadDraw = snapshot(h.stats);
+
 h.resetStats();
 const t0 = process.hrtime.bigint();
 h.tick('2026-09-09T18:01:00Z');
@@ -117,6 +123,8 @@ const report = {
 	label,
 	host: process.platform,
 	ticks: TICKS,
+	bootDraw,
+	payloadDraw: {...payloadDraw, ns: payloadNs, ms: payloadNs / 1e6},
 	firstTick: {...first, ns: firstNs, ms: firstNs / 1e6},
 	steady: {
 		...steady,

@@ -6,6 +6,56 @@ const source = fs.readFileSync(require('node:path').join(__dirname, '../src/embe
 const solar = source.slice(source.indexOf('function sunAt('), source.indexOf('function pad2('));
 const ctx = vm.createContext({Math, Date, MAP_W:200, MAP_H:132});
 vm.runInContext(solar, ctx);
+vm.runInContext(`
+function isNightXY(x, sinY, cosY, sun) {
+	const xA = Math.PI * 2 * x / MAP_W;
+	return sun.sinY * sinY + sun.cosY * cosY * (sun.cosX * Math.cos(xA) + sun.sinX * Math.sin(xA)) < NIGHT_SIN;
+}
+function nightSpansAt(y, sun) {
+	const yA = Math.PI * y / MAP_H - Math.PI / 2;
+	const sinY = Math.sin(yA);
+	const cosY = Math.cos(yA);
+	const spans = [];
+	let x0 = -1;
+	for (let x = 0; x <= MAP_W; x++) {
+		const night = x < MAP_W && isNightXY(x, sinY, cosY, sun);
+		if (night && x0 < 0)
+			x0 = x;
+		else if (!night && x0 >= 0) {
+			spans.push(x0, x);
+			x0 = -1;
+		}
+	}
+	return spans;
+}
+function unprojectGlobe(x, y, lon0, sinLat0, cosLat0) {
+	const xn = (x + 0.5 - GLOBE_CX) / GLOBE_R;
+	const yn = (GLOBE_CY - (y + 0.5)) / GLOBE_R;
+	const rr = xn * xn + yn * yn;
+	if (rr > 1)
+		return null;
+	const z = Math.sqrt(1 - rr);
+	const lat = Math.asin(Math.max(-1, Math.min(1, yn * cosLat0 + z * sinLat0)));
+	let lon = (lon0 + Math.atan2(xn, z * cosLat0 - yn * sinLat0)) * 180 / Math.PI;
+	lon = ((lon + 180) % 360 + 360) % 360 - 180;
+	return { lon, lat: lat * 180 / Math.PI };
+}
+function globeNightSpansAt(y, sun, lon0, sinLat0, cosLat0) {
+	const spans = [];
+	let x0 = -1;
+	for (let x = 0; x <= MAP_W; x++) {
+		const p = x < MAP_W ? unprojectGlobe(x, y, lon0, sinLat0, cosLat0) : null;
+		const night = !!(p && isNightLonLat(p.lon, p.lat, sun));
+		if (night && x0 < 0)
+			x0 = x;
+		else if (!night && x0 >= 0) {
+			spans.push(x0, x);
+			x0 = -1;
+		}
+	}
+	return spans;
+}
+`, ctx);
 function look(lon, lat) {
  const r = lat * Math.PI / 180;
  return [lon * Math.PI / 180, Math.sin(r), Math.cos(r)];

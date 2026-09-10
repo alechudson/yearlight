@@ -59,6 +59,14 @@ function forecast() {
 			sunrise: [sec + 43200, sec + 129600], sunset: [sec + 86400, sec + 172800]}}};
 }
 
+test('boot paints the clock without shading the globe', () => {
+	const h = boot();
+	assert.equal(h.globeRects().length, 1);
+	assert.match(h.texts().join(' '), /:/);
+	h.deliver(forecast());
+	assert.ok(h.globeRects().length > 10);
+});
+
 test('minute ticks keep the clock moving without redrawing the globe', () => {
 	const h = boot();
 	h.deliver(forecast());
