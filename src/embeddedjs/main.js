@@ -203,7 +203,6 @@ function viewOrigin() {
 	return { lon: -90, lat: 15 };
 }
 
-// 2x2 cells at the disc edge move about one cell every 8 minutes of Earth rotation.
 const TERMINATOR_MS = 8 * 60 * 1000;
 const globeDrawn = { lon: 9999, lat: 9999, step: -1, stars: -1 };
 
