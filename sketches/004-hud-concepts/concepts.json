@@ -1,0 +1,47 @@
+[
+  {
+    "id": "observatory",
+    "name": "Observatory",
+    "tag": "Quiet \u00b7 centered \u00b7 time first",
+    "stance": "One centered stack, with nothing competing for attention.",
+    "choices": "Full-width clock; dedicated date line; icon and temperature on their own line. White type, one yellow temperature accent. No weekly chart.",
+    "tradeoff": "The cleanest everyday read, but gives up forecast detail.",
+    "best": "A watch face, not a dashboard."
+  },
+  {
+    "id": "split-flap",
+    "name": "Split-flap",
+    "tag": "Architectural \u00b7 asymmetric \u00b7 organized",
+    "stance": "Separate time, calendar, and weather into three deliberate zones.",
+    "choices": "Clock across the left; a narrow weekday/date column on the right; a full-width inverted weather ribbon underneath. Stark black and white.",
+    "tradeoff": "Fast scanning and strong structure; the weather ribbon is more visually assertive.",
+    "best": "A distinctive digital-instrument look."
+  },
+  {
+    "id": "weather-deck",
+    "name": "Weather deck",
+    "tag": "Practical \u00b7 weather first \u00b7 bold",
+    "stance": "Treat the lower section as a miniature weather instrument.",
+    "choices": "Time and date form the header. An oversized yellow temperature is the hero below; a pixel icon, condition, and today\u2019s high/low sit beside it.",
+    "tradeoff": "The most useful outdoors, but time is smaller than in the other concepts.",
+    "best": "Deciding what to wear or whether to head outside."
+  },
+  {
+    "id": "almanac",
+    "name": "Almanac",
+    "tag": "Calendar led \u00b7 graphic \u00b7 compact",
+    "stance": "Make the calendar a graphic object rather than another caption.",
+    "choices": "A cyan calendar tile anchors the left. Time and weather stack on the right. A small footer gives today\u2019s high/low.",
+    "tradeoff": "The date is unmistakable; less open black space and more visual structure.",
+    "best": "Equal emphasis on date, time, and temperature."
+  },
+  {
+    "id": "daylight",
+    "name": "Daylight",
+    "tag": "Solar \u00b7 contextual \u00b7 restrained",
+    "stance": "Connect the readout to the globe\u2019s day/night story.",
+    "choices": "A large centered clock, a date-and-weather row, and a compact daylight ruler from sunrise to sunset. A yellow marker shows time within the daylight interval.",
+    "tradeoff": "Adds meaningful solar context, but replaces the weekly forecast. Browser mock uses illustrative sunrise/sunset times.",
+    "best": "Making the whole face feel like one idea."
+  }
+]

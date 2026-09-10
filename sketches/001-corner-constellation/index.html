@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Corner constellation</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: #0a0a0c; color: #d0d0d6; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { padding: 16px; }
+    h1 { color: #fff; font-size: 16px; margin-bottom: 8px; }
+    p { font-size: 13px; color: #9a9aa3; max-width: 26rem; line-height: 1.4; margin-bottom: 12px; }
+    .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; }
+    input[type=range] { width: 200px; accent-color: #ff0; }
+    button { background: #1c1c22; color: #eee; border: 1px solid #333; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+    canvas { width: 400px; height: 456px; image-rendering: pixelated; background: #000; box-shadow: 0 0 0 8px #16161c; }
+  </style>
+</head>
+<body>
+  <h1>Corner constellation</h1>
+  <p>52 week-stars in the black around the globe. Future weeks stay dim so the void is always a sky. Globe radius unchanged.</p>
+  <div class="controls">
+    <span id="lab"></span>
+    <input id="doy" type="range" min="1" max="365" value="252" />
+    <button data-d="1">Jan 1</button>
+    <button data-d="252">Today</button>
+    <button data-d="365">Dec 31</button>
+  </div>
+  <canvas id="c" width="200" height="228"></canvas>
+  <script>
+    const MODE = "corner";
+    const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const CX=100,CY=66,R=64,MAP_H=132;
+    const BLACK="#000",WHITE="#fff",YELLOW="#ff0",DIM="#5555aa",CYAN="#00aaff";
+    const DAY_O="#0055aa",NIGHT_O="#000055",DAY_L="#00aa00",NIGHT_L="#005500";
+    function hash(n){n=Math.imul(n^0x9e3779b9,0x85ebca6b);n=Math.imul(n^(n>>>13),0xc2b2ae35);return ((n^(n>>>16))>>>0)/4294967296;}
+    function inDisc(x,y,pad){const dx=x+.5-CX,dy=y+.5-CY;return dx*dx+dy*dy<=(R+pad)*(R+pad);}
+    function land(xn,yn,z){return ((xn+0.12)**2/0.38+(yn-0.30)**2/0.26<1&&z>0.15)||((xn-0.02)**2/0.11+(yn+0.44)**2/0.30<1)||((xn+0.02)**2/0.05+(yn-0.62)**2/0.07<1)||(xn>0.38&&(xn-0.58)**2/0.18+(yn+0.04)**2/0.34<1);}
+    function nearText(x,y){if(y<138)return false;return (y>=140&&y<=178&&x>=42&&x<=158)||(y>=180&&y<=196&&x>=38&&x<=162)||(y>=198&&y<=216&&x>=44&&x<=156);}
+    function voidCells(maxY,pad,keepText){const cells=[];for(let y=0;y<maxY;y++)for(let x=0;x<200;x++){if(inDisc(x,y,pad))continue;if(keepText&&nearText(x,y))continue;if(y>=MAP_H-1&&y<MAP_H+2)continue;cells.push({x,y});}return cells;}
+    function pick(cells,n,minD,seed){const ranked=cells.map((c,i)=>({c,k:hash((seed+i)*17+c.x*131+c.y*17)}));ranked.sort((a,b)=>a.k-b.k);const out=[];let dist=minD;while(out.length<n&&dist>=3){out.length=0;for(const {c} of ranked){if(out.every(o=>(o.x-c.x)**2+(o.y-c.y)**2>=dist*dist)){out.push({x:c.x,y:c.y});if(out.length===n)break;}}dist--;}return out;}
+    function ang(s){let a=Math.atan2(s.y-CY,s.x-CX)+Math.PI*0.72;while(a<0)a+=Math.PI*2;return a;}
+    function orderStars(stars){stars.sort((a,b)=>ang(a)-ang(b));[0,13,26,39].forEach(i=>{if(stars[i])stars[i].season=true;});return stars;}
+    const yearStars=orderStars(pick(voidCells(MAP_H,3,false),52,9,7));
+    const ctx=document.getElementById("c").getContext("2d");ctx.imageSmoothingEnabled=false;
+    function plot(x,y,col){ctx.fillStyle=col;ctx.fillRect(x,y,1,1);}
+    function cross(x,y,col){plot(x,y,col);plot(x-1,y,col);plot(x+1,y,col);plot(x,y-1,col);plot(x,y+1,col);}
+    function diamond(x,y,col){cross(x,y,col);plot(x-1,y-1,col);plot(x+1,y-1,col);plot(x-1,y+1,col);plot(x+1,y+1,col);}
+    function dateFromDoy(d){const dt=new Date(Date.UTC(2026,0,d));return DAYS[dt.getUTCDay()]+", "+MONTHS[dt.getUTCMonth()]+" "+dt.getUTCDate();}
+    function render(doy){
+      const dateStr=dateFromDoy(doy);
+      document.getElementById("lab").textContent=doy+" — "+dateStr;
+      ctx.fillStyle=BLACK;ctx.fillRect(0,0,200,228);
+      for(let y=0;y<MAP_H;y++)for(let x=0;x<200;x++){const xn=(x+.5-CX)/R,yn=(CY-(y+.5))/R,rr=xn*xn+yn*yn;if(rr>1)continue;const z=Math.sqrt(1-rr),night=xn*0.72+z*0.18<0.12,isL=land(xn,yn,z);ctx.fillStyle=isL?(night?NIGHT_L:DAY_L):(night?NIGHT_O:DAY_O);ctx.fillRect(x,y,1,1);}
+      plot(88,58,BLACK);plot(89,58,BLACK);plot(90,58,BLACK);plot(88,59,BLACK);plot(90,59,BLACK);plot(88,60,BLACK);plot(89,60,BLACK);plot(90,60,BLACK);plot(89,59,YELLOW);
+      ctx.fillStyle=BLACK;ctx.fillRect(0,MAP_H,200,96);ctx.fillStyle=WHITE;ctx.fillRect(0,MAP_H,200,1);
+      ctx.textAlign="center";ctx.fillStyle=WHITE;ctx.font="700 36px Arial,sans-serif";ctx.fillText("14:39",100,174);
+      ctx.font="700 13px Arial,sans-serif";ctx.fillText(dateStr,100,194);ctx.fillText("70F  CLEAR",100,212);
+      const current=Math.min(51,Math.floor((doy-1)/365*52));
+      for(let i=0;i<yearStars.length;i++){const s=yearStars[i],col=i===current?YELLOW:i<current?(s.season?CYAN:WHITE):DIM;if(i===current)diamond(s.x,s.y,YELLOW);else if(s.season)cross(s.x,s.y,col);else {plot(s.x,s.y,col);if(i%2)plot(s.x+1,s.y,col);}}
+    }
+    const slider=document.getElementById("doy");
+    slider.addEventListener("input",()=>render(+slider.value));
+    document.querySelectorAll("button[data-d]").forEach(b=>b.addEventListener("click",()=>{slider.value=b.dataset.d;render(+b.dataset.d);}));
+    render(252);
+  </script>
+</body>
+</html>

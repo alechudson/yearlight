@@ -1,0 +1,44 @@
+{
+  "pass": true,
+  "conceptCount": 5,
+  "states": [
+    {
+      "state": "rain",
+      "count": 5
+    },
+    {
+      "state": "wide",
+      "count": 5
+    },
+    {
+      "state": "off",
+      "count": 5
+    },
+    {
+      "state": "clear",
+      "count": 5
+    }
+  ],
+  "clockModes": [
+    "24h",
+    "12h"
+  ],
+  "scaleModes": [
+    "native",
+    "2x"
+  ],
+  "viewports": [
+    "1240x800",
+    "390x844",
+    "780x900"
+  ],
+  "pageErrors": [],
+  "screenshots": [
+    "concepts-desktop.png",
+    "concepts-wide-12h.png",
+    "concepts-enlarged.png",
+    "concepts-mobile.png",
+    "concepts-mobile-enlarged.png",
+    "concepts-inline.png"
+  ]
+}

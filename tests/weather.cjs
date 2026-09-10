@@ -55,7 +55,7 @@ test('phone payload sets location and weather', ()=>{
   assert.equal(h.eval('state.status'),'ready');
   assert.equal(h.eval('state.lat'),30);
   assert.equal(h.eval('state.lon'),-97);
-  assert.ok(h.texts.includes('21F  CLOUD'));
+  assert.ok(h.texts.includes('21°'));
 });
 test('payload parser uses UTC seconds with the matching daily entry', ()=>{
   const h=boot();
@@ -95,7 +95,7 @@ test('bad payload and missing location stay offline',()=>{
   h.deliver({error:1});
   assert.equal(h.eval('state.status'),'offline');
   assert.equal(h.eval('state.lat'),null);
-  assert.ok(h.texts.includes('--F  NO LOC'));
+  assert.ok(h.texts.includes('--°'));
   h.deliver('{');
   assert.equal(h.eval('state.lat'),null);
   h.deliver({lat:91,lon:0,weather:valid()});
@@ -110,7 +110,7 @@ test('location can land without a usable forecast',()=>{
 test('silent phone times out instead of waiting forever',async()=>{
   const h=boot(); await h.advance(30000);
   assert.equal(h.eval('state.status'),'offline');
-  assert.ok(h.texts.includes('--F  NO LOC'));
+  assert.ok(h.texts.includes('--°'));
 });
 test('hourly refresh writes CMD once the phone is writable',()=>{
   const h=boot();
@@ -123,7 +123,7 @@ test('hourly refresh writes CMD once the phone is writable',()=>{
 test('cached weather is visibly stale on error payload and age expiry',async()=>{
   const h=boot(); h.deliver(wx());
   h.deliver({error:1});
-  assert.equal(h.eval('state.status'),'stale'); assert.ok(h.texts.some(t=>t.includes('STALE')));
+  assert.equal(h.eval('state.status'),'stale'); assert.ok(h.texts.includes('21°!'));
   h.deliver(wx());
   assert.equal(h.eval('state.status'),'ready');
   await h.advance(7200000); h.events.minutechange({date:new h.context.Date()});

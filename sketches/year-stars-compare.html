@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Year stars — three fills of the globe void</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: #0a0a0c;
+      color: #d8d8d8;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      min-height: 100%;
+    }
+    body { padding: 20px 16px 40px; }
+    h1 { font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+    .lead { font-size: 13px; color: #9a9aa3; max-width: 52rem; line-height: 1.45; margin-bottom: 16px; }
+    .controls {
+      display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;
+      margin-bottom: 18px; font-size: 12px; color: #b0b0b8;
+    }
+    .controls input[type=range] { width: 220px; accent-color: #ff0; }
+    button {
+      background: #1c1c22; color: #eee; border: 1px solid #333; border-radius: 4px;
+      padding: 4px 10px; font-size: 12px; cursor: pointer;
+    }
+    button:hover { border-color: #666; }
+    button.on { border-color: #fff; color: #fff; }
+    button.remain i {
+      display: inline-block; width: 10px; height: 10px;
+      margin-right: 6px; vertical-align: -1px;
+      box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #444;
+    }
+    .row { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+    figure { margin: 0; }
+    figcaption { font-size: 12px; color: #fff; margin-bottom: 8px; }
+    figcaption span { display: block; color: #8b8b96; font-weight: 400; margin-top: 2px; max-width: 400px; line-height: 1.35; }
+    canvas {
+      width: 400px; height: 456px;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      background: #000;
+      box-shadow: 0 0 0 8px #16161c, 0 0 0 9px #2a2a33;
+    }
+    .pick { margin-top: 22px; font-size: 13px; color: #c8c8d0; max-width: 52rem; line-height: 1.5; }
+    .pick strong { color: #fff; }
+  </style>
+</head>
+<body>
+  <h1>Year stars in the existing void</h1>
+  <p class="lead">Globe stays 64px. Stars only live in the black around it. Days ahead are blank — the sky fills as the year passes. Drag the slider.</p>
+  <div class="controls">
+    <label>Day of year <span id="doyLabel">252</span> — <span id="dateLabel">Wed, Sep 9</span></label>
+    <input id="doy" type="range" min="1" max="365" value="252" />
+    <button data-d="1">Jan 1</button>
+    <button data-d="79">Equinox</button>
+    <button data-d="252">Today</button>
+    <button data-d="355">Solstice</button>
+    <button data-d="365">Dec 31</button>
+  </div>
+  <div class="row">
+    <figure>
+      <figcaption>Corner constellation<span>52 week-stars, all white, mixed sizes. Appear in shuffled order so the sky densifies everywhere.</span></figcaption>
+      <canvas id="c1" width="200" height="228"></canvas>
+    </figure>
+    <figure>
+      <figcaption>Full-face sky<span>52 white stars, including HUD corners. Same shuffle-fill. No dim placeholders.</span></figcaption>
+      <canvas id="c2" width="200" height="228"></canvas>
+    </figure>
+    <figure>
+      <figcaption>Day motes<span>365 white stars of mixed size. Random order, so September is a thinner sky, not a filled sector.</span></figcaption>
+      <canvas id="c3" width="200" height="228"></canvas>
+    </figure>
+  </div>
+  <p class="pick"><strong>I’d ship day motes: all white, mixed shapes, shuffled fill.</strong> Future days stay blank. Density grows evenly around the globe instead of lighting one wedge at a time.</p>
+  <script>
+    const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const CX = 100, CY = 66, R = 64, MAP_H = 132;
+    const BLACK = "#000000", WHITE = "#ffffff", YELLOW = "#ffff00";
+    const CYAN = "#00aaff";
+    const DAY_O = "#0055aa", NIGHT_O = "#000055", DAY_L = "#00aa00", NIGHT_L = "#005500";
+
+    function hash(n) {
+      n = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
+      n = Math.imul(n ^ (n >>> 13), 0xc2b2ae35);
+      return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+    }
+    function inDisc(x, y, pad) {
+      const dx = x + 0.5 - CX, dy = y + 0.5 - CY;
+      return dx * dx + dy * dy <= (R + pad) * (R + pad);
+    }
+    function land(xn, yn, z) {
+      if ((xn + 0.12) * (xn + 0.12) / 0.38 + (yn - 0.30) * (yn - 0.30) / 0.26 < 1 && z > 0.15) return true;
+      if ((xn - 0.02) * (xn - 0.02) / 0.11 + (yn + 0.44) * (yn + 0.44) / 0.30 < 1) return true;
+      if ((xn + 0.02) * (xn + 0.02) / 0.05 + (yn - 0.62) * (yn - 0.62) / 0.07 < 1) return true;
+      if (xn > 0.38 && (xn - 0.58) * (xn - 0.58) / 0.18 + (yn + 0.04) * (yn + 0.04) / 0.34 < 1) return true;
+      return false;
+    }
+    function nearText(x, y) {
+      if (y < 138) return false;
+      if (y >= 140 && y <= 178 && x >= 42 && x <= 158) return true;
+      if (y >= 180 && y <= 196 && x >= 38 && x <= 162) return true;
+      if (y >= 198 && y <= 216 && x >= 44 && x <= 156) return true;
+      return false;
+    }
+    function voidCells(maxY, pad, keepText) {
+      const cells = [];
+      for (let y = 0; y < maxY; y++) {
+        for (let x = 0; x < 200; x++) {
+          if (inDisc(x, y, pad)) continue;
+          if (keepText && nearText(x, y)) continue;
+          if (y >= MAP_H - 1 && y < MAP_H + 2) continue;
+          cells.push({ x, y });
+        }
+      }
+      return cells;
+    }
+    function pick(cells, n, minD, seed) {
+      const ranked = cells.map((c, i) => ({ c, k: hash((seed + i) * 17 + c.x * 131 + c.y * 17) }));
+      ranked.sort((a, b) => a.k - b.k);
+      const out = [];
+      let dist = minD;
+      while (out.length < n && dist >= 3) {
+        out.length = 0;
+        for (let i = 0; i < ranked.length; i++) {
+          const c = ranked[i].c;
+          let ok = true;
+          for (let j = 0; j < out.length; j++) {
+            const dx = out[j].x - c.x, dy = out[j].y - c.y;
+            if (dx * dx + dy * dy < dist * dist) { ok = false; break; }
+          }
+          if (ok) {
+            out.push({ x: c.x, y: c.y });
+            if (out.length === n) break;
+          }
+        }
+        dist -= 1;
+      }
+      return out;
+    }
+    function decorate(stars) {
+      for (let i = 0; i < stars.length; i++) {
+        const h = hash(stars[i].x * 131 + stars[i].y * 17 + 99);
+        stars[i].shape = h < 0.04 ? "diamond" : h < 0.12 ? "cross" : h < 0.30 ? "pair" : "dot";
+      }
+      stars.sort((a, b) => hash(a.x * 911 + a.y * 313) - hash(b.x * 911 + b.y * 313));
+      return stars;
+    }
+
+    const cornerStars = decorate(pick(voidCells(MAP_H, 3, false), 52, 9, 7));
+    const skyStars = decorate(pick(voidCells(228, 3, true), 52, 8, 11));
+    const dayStars = decorate(pick(voidCells(MAP_H, 2, false), 365, 4, 3));
+
+    function plot(ctx, x, y, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, 1, 1);
+    }
+    function cross(ctx, x, y, color) {
+      plot(ctx, x, y, color);
+      plot(ctx, x - 1, y, color);
+      plot(ctx, x + 1, y, color);
+      plot(ctx, x, y - 1, color);
+      plot(ctx, x, y + 1, color);
+    }
+    function diamond(ctx, x, y, color) {
+      cross(ctx, x, y, color);
+      plot(ctx, x - 1, y - 1, color);
+      plot(ctx, x + 1, y - 1, color);
+      plot(ctx, x - 1, y + 1, color);
+      plot(ctx, x + 1, y + 1, color);
+    }
+    function drawGlobe(ctx) {
+      for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < 200; x++) {
+          const xn = (x + 0.5 - CX) / R;
+          const yn = (CY - (y + 0.5)) / R;
+          const rr = xn * xn + yn * yn;
+          if (rr > 1) continue;
+          const z = Math.sqrt(1 - rr);
+          const night = xn * 0.72 + z * 0.18 < 0.12;
+          const isL = land(xn, yn, z);
+          ctx.fillStyle = isL ? (night ? NIGHT_L : DAY_L) : (night ? NIGHT_O : DAY_O);
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+      plot(ctx, 88, 58, BLACK); plot(ctx, 89, 58, BLACK); plot(ctx, 90, 58, BLACK);
+      plot(ctx, 88, 59, BLACK); plot(ctx, 90, 59, BLACK);
+      plot(ctx, 88, 60, BLACK); plot(ctx, 89, 60, BLACK); plot(ctx, 90, 60, BLACK);
+      plot(ctx, 89, 59, YELLOW);
+    }
+    function drawHud(ctx, dateStr) {
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(0, MAP_H, 200, 228 - MAP_H);
+      ctx.fillStyle = WHITE;
+      ctx.fillRect(0, MAP_H, 200, 1);
+      ctx.fillStyle = WHITE;
+      ctx.textAlign = "center";
+      ctx.font = "700 36px Arial, sans-serif";
+      ctx.fillText("14:39", 100, 174);
+      ctx.font = "700 13px Arial, sans-serif";
+      ctx.fillText(dateStr, 100, 194);
+      ctx.fillText("70F  CLEAR", 100, 212);
+    }
+    function paintStar(ctx, s) {
+      if (s.shape === "diamond") diamond(ctx, s.x, s.y, WHITE);
+      else if (s.shape === "cross") cross(ctx, s.x, s.y, WHITE);
+      else if (s.shape === "pair") { plot(ctx, s.x, s.y, WHITE); plot(ctx, s.x + 1, s.y, WHITE); }
+      else plot(ctx, s.x, s.y, WHITE);
+    }
+    function drawStar(ctx, s, i, current) {
+      if (i > current) return;
+      paintStar(ctx, s);
+    }
+    function frame(ctx, dateStr) {
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(0, 0, 200, 228);
+      drawGlobe(ctx);
+      drawHud(ctx, dateStr);
+    }
+    function drawCorner(ctx, doy, dateStr) {
+      frame(ctx, dateStr);
+      const current = Math.min(51, Math.floor((doy - 1) / 365 * 52));
+      for (let i = 0; i < cornerStars.length; i++) drawStar(ctx, cornerStars[i], i, current);
+    }
+    function drawSky(ctx, doy, dateStr) {
+      frame(ctx, dateStr);
+      const current = Math.min(51, Math.floor((doy - 1) / 365 * 52));
+      for (let i = 0; i < skyStars.length; i++) drawStar(ctx, skyStars[i], i, current);
+    }
+    function drawDays(ctx, doy, dateStr) {
+      frame(ctx, dateStr);
+      const current = Math.min(364, doy - 1);
+      for (let i = 0; i < dayStars.length; i++) {
+        if (i > current) continue;
+        paintStar(ctx, dayStars[i]);
+      }
+    }
+
+    const canvases = {
+      c1: document.getElementById("c1").getContext("2d"),
+      c2: document.getElementById("c2").getContext("2d"),
+      c3: document.getElementById("c3").getContext("2d"),
+    };
+    Object.values(canvases).forEach(ctx => { ctx.imageSmoothingEnabled = false; });
+
+    function dateFromDoy(d) {
+      const dt = new Date(Date.UTC(2026, 0, d));
+      return DAYS[dt.getUTCDay()] + ", " + MONTHS[dt.getUTCMonth()] + " " + dt.getUTCDate();
+    }
+    function render(doy) {
+      const dateStr = dateFromDoy(doy);
+      document.getElementById("doyLabel").textContent = String(doy);
+      document.getElementById("dateLabel").textContent = dateStr;
+      drawCorner(canvases.c1, doy, dateStr);
+      drawSky(canvases.c2, doy, dateStr);
+      drawDays(canvases.c3, doy, dateStr);
+    }
+    const slider = document.getElementById("doy");
+    slider.addEventListener("input", () => render(+slider.value));
+    document.querySelectorAll("button[data-d]").forEach(b => {
+      b.addEventListener("click", () => { slider.value = b.dataset.d; render(+b.dataset.d); });
+    });
+    render(252);
+  </script>
+</body>
+</html>

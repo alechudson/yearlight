@@ -8,12 +8,15 @@ const MAP_H = 132;
 
 const render = new Poco(screen);
 const timeFont = new render.Font("Bitham-Bold", 42);
-const dateFont = new render.Font("Gothic-Bold", 14);
+const dateFont = new render.Font("Gothic-Bold", 18);
+const smallFont = new render.Font("Gothic-Bold", 14);
 
 const black = render.makeColor(0, 0, 0);
 const white = render.makeColor(255, 255, 255);
 const yellow = render.makeColor(255, 255, 0);
-const barFill = render.makeColor(0, 170, 255);
+const gray = render.makeColor(170, 170, 170);
+const nightBlue = render.makeColor(85, 85, 170);
+const moonBlue = render.makeColor(170, 170, 255);
 const dayOcean = render.makeColor(0, 85, 170);
 const nightOcean = render.makeColor(0, 0, 85);
 const dayLand = render.makeColor(0, 170, 0);
@@ -259,37 +262,97 @@ function drawYearStars(now) {
 	}
 }
 
-function drawWeekTemps(days, top, w) {
-	const chartH = 16;
-	const left = 12;
-	const span = w - 24;
-	let minT = days[0].lo;
-	let maxT = days[0].hi;
-	for (let i = 1; i < days.length; i++) {
-		if (days[i].lo < minT)
-			minT = days[i].lo;
-		if (days[i].hi > maxT)
-			maxT = days[i].hi;
+// 16px monochrome pictograms; no bitmap resources or per-frame allocations.
+const WEATHER_ICONS = {
+	CLEAR: [0x0180,0x0180,0x2004,0x1008,0x03c0,0x07e0,0x0ff0,0xcff3,0xcff3,0x0ff0,0x07e0,0x03c0,0x1008,0x2004,0x0180,0x0180],
+	MOON: [0x03c0,0x0780,0x0f00,0x1e00,0x1e00,0x3c00,0x3c00,0x3c00,0x3e00,0x3e00,0x1f02,0x1f86,0x0ffe,0x07fc,0x03f8,0x00e0],
+	CLOUD: [0,0,0x03c0,0x07e0,0x0ff0,0x1ff8,0x7ffc,0xfffe,0xfffe,0xfffe,0x7ffc,0,0,0,0,0],
+	FOG: [0,0x03c0,0x07e0,0x0ff0,0x3ffc,0x7ffe,0x3ffc,0,0,0x7ff8,0x7ff8,0,0x1ffe,0x1ffe,0,0],
+	RAIN: [0,0x03c0,0x07e0,0x0ff0,0x3ffc,0x7ffe,0x7ffe,0x3ffc,0,0,0x1110,0x2220,0x4440,0,0x1110,0x2220],
+	SNOW: [0,0,0x0180,0x2184,0x318c,0x1998,0x0db0,0x07e0,0x7ffe,0x07e0,0x0db0,0x1998,0x318c,0x2184,0x0180,0],
+	STORM: [0,0x03c0,0x07e0,0x0ff0,0x3ffc,0x7ffe,0x7ffe,0x3ffc,0x0300,0x0600,0x0c00,0x1f80,0x0300,0x0600,0x0c00,0x0800],
+};
+
+function drawWeatherIcon(now, x, y, color) {
+	if (!state.weather)
+		return;
+	let mood = moodFor(state.weather.code);
+	if (mood === "DRIZL" || mood === "SHWR")
+		mood = "RAIN";
+	if (mood === "CLEAR" && isNightLonLat(state.lon, state.lat, sunAt(now)))
+		mood = "MOON";
+	const rows = WEATHER_ICONS[mood];
+	for (let row = 0; row < rows.length; row++) {
+		for (let col = 0; col < 16; col++) {
+			if (rows[row] & (0x8000 >> col))
+				render.fillRectangle(color, x + col, y + row, 1, 1);
+		}
 	}
-	if (maxT < minT + 2) {
-		maxT += 1;
-		minT -= 1;
+}
+
+function formatSolarTime(date, offset) {
+	if (!date)
+		return "--:--";
+	const local = new Date(date.getTime() + offset * 1000);
+	const hours = local.getUTCHours();
+	if (watch.hour12)
+		return (hours % 12 || 12) + ":" + pad2(local.getUTCMinutes()) + (hours < 12 ? "a" : "p");
+	return pad2(hours) + ":" + pad2(local.getUTCMinutes());
+}
+
+function solarPhaseFor(now) {
+	const weather = state.weather;
+	if (!weather)
+		return null;
+	const days = weather.solarDays;
+	for (let i = 0; i < days.length; i++) {
+		const day = days[i];
+		if (day.sunrise && day.sunset && day.sunrise <= now && now < day.sunset)
+			return { night: false, start: day.sunrise, end: day.sunset };
+		const next = days[i + 1];
+		if (next && next.day === day.day + 1 && day.sunset && next.sunrise
+			&& day.sunset <= now && now < next.sunrise)
+			return { night: true, start: day.sunset, end: next.sunrise };
 	}
-	const n = days.length;
-	const range = maxT - minT;
-	function xAt(i) {
-		return left + ((i * span / (n - 1)) | 0);
+	return null;
+}
+
+const MOON_MARKER = [0x1c, 0x30, 0x60, 0x60, 0x71, 0x3e, 0x1c];
+
+function drawSolarProgress(now, w) {
+	const weather = state.weather;
+	const phase = solarPhaseFor(now);
+	const night = phase && phase.night;
+	const left = 13;
+	const right = w - 14;
+	const y = 205;
+	render.fillRectangle(gray, left, y, right - left + 1, 1);
+	render.fillRectangle(white, left, y - 3, 1, 7);
+	render.fillRectangle(white, right, y - 3, 1, 7);
+	if (phase) {
+		const progress = (now - phase.start) / (phase.end - phase.start);
+		const x = left + Math.round(progress * (right - left));
+		render.fillRectangle(night ? nightBlue : yellow, left, y, x - left, 1);
+		if (night) {
+			// Clear the track behind the crescent so its dark cutout stays visible.
+			render.fillRectangle(black, x - 4, y - 4, 9, 9);
+			for (let row = 0; row < MOON_MARKER.length; row++) {
+				for (let col = 0; col < 7; col++) {
+					if (MOON_MARKER[row] & (0x40 >> col))
+						render.fillRectangle(moonBlue, x + col - 3, y + row - 3, 1, 1);
+				}
+			}
+		} else {
+			render.fillRectangle(yellow, x - 2, y - 2, 5, 5);
+			render.fillRectangle(yellow, x - 1, y - 3, 3, 7);
+		}
 	}
-	function yAt(t) {
-		return top + (((maxT - t) * (chartH - 1) / range) | 0);
-	}
-	for (let i = 0; i < n; i++) {
-		const yHi = yAt(days[i].hi);
-		const yLo = yAt(days[i].lo);
-		const h = yLo - yHi + 1;
-		if (h > 0)
-			render.fillRectangle(white, xAt(i), yHi, 2, h);
-	}
+	const offset = weather ? weather.utcOffset : 0;
+	const startText = (night ? "SET " : "RISE ") + formatSolarTime(phase && phase.start, offset);
+	const endText = (night ? "RISE " : "SET ") + formatSolarTime(phase && phase.end, offset);
+	render.drawText(startText, smallFont, gray, 9, 210);
+	render.drawText(endText, smallFont, gray,
+		w - 9 - render.getTextWidth(endText, smallFont), 210);
 }
 
 function drawScreen(event) {
@@ -318,27 +381,22 @@ function drawScreen(event) {
 	render.fillRectangle(black, 0, hudY, w, h - hudY);
 
 	const timeStr = formatTime(now);
-	const timeY = hudY + 12;
-	render.drawText(timeStr, timeFont, white,
-		((w - render.getTextWidth(timeStr, timeFont)) / 2) | 0, timeY);
+	const period = watch.hour12 ? (now.getHours() < 12 ? "AM" : "PM") : "";
+	const timeW = render.getTextWidth(timeStr, timeFont);
+	const periodW = period ? render.getTextWidth(period, smallFont) + 5 : 0;
+	const timeX = ((w - timeW - periodW) / 2) | 0;
+	render.drawText(timeStr, timeFont, white, timeX, hudY);
+	if (period)
+		render.drawText(period, smallFont, gray, timeX + timeW + 5, hudY + 26);
 
-	const dateStr = DAYS[now.getDay()] + ", " + MONTHS[now.getMonth()] + " " + now.getDate();
-	let weatherStr = "--F  WAIT";
-	if (state.status === "offline" && !state.weather)
-		weatherStr = state.lat === null ? "--F  NO LOC" : "--F  OFFLINE";
-	else if (state.weather)
-		weatherStr = String(state.weather.tempF) + "F  " + (state.status === "stale" ? "STALE" : moodFor(state.weather.code));
-	const metaY = timeY + 48;
-	const dateW = render.getTextWidth(dateStr, dateFont);
-	const weatherW = render.getTextWidth(weatherStr, dateFont);
-	const metaGap = 12;
-	const metaX = ((w - (dateW + metaGap + weatherW)) / 2) | 0;
-	render.drawText(dateStr, dateFont, white, metaX, metaY);
-	render.drawText(weatherStr, dateFont, white, metaX + dateW + metaGap, metaY);
-
-	const days = state.weather && state.weather.days;
-	if (days && days.length > 1)
-		drawWeekTemps(days, metaY + 18, w);
+	const dateStr = (DAYS[now.getDay()] + " " + MONTHS[now.getMonth()] + " " + now.getDate()).toUpperCase();
+	const stale = state.status === "stale";
+	const weatherStr = state.weather ? String(state.weather.tempF) + "°" + (stale ? "!" : "") : "--°";
+	render.drawText(dateStr, dateFont, white, 9, 178);
+	const weatherX = w - 9 - render.getTextWidth(weatherStr, dateFont);
+	render.drawText(weatherStr, dateFont, stale || !state.weather ? gray : yellow, weatherX, 178);
+	drawWeatherIcon(now, weatherX - 22, 181, stale ? gray : white);
+	drawSolarProgress(now, w);
 
 	render.end();
 }
@@ -365,6 +423,7 @@ function parseWeather(data) {
 	const today = Math.floor((Date.now() / 1000 + offset) / 86400);
 	let day = -1;
 	const days = [];
+	const solarDays = [];
 	if (daily && Array.isArray(daily.time)) {
 		for (let i = 0; i < daily.time.length; i++) {
 			if (!Number.isFinite(daily.time[i]))
@@ -372,6 +431,16 @@ function parseWeather(data) {
 			const stamp = Math.floor((daily.time[i] + offset) / 86400);
 			if (day < 0 && stamp === today)
 				day = i;
+			// Retain yesterday's sunset for a fresh launch or refresh before dawn.
+			if (stamp < today - 1)
+				continue;
+			if (solarDays.length < 8) {
+				solarDays.push({
+					day: stamp,
+					sunrise: Array.isArray(daily.sunrise) ? weatherDate(daily.sunrise[i]) : null,
+					sunset: Array.isArray(daily.sunset) ? weatherDate(daily.sunset[i]) : null,
+				});
+			}
 			if (stamp < today || days.length >= 7)
 				continue;
 			const hi = daily.temperature_2m_max && daily.temperature_2m_max[i];
@@ -384,6 +453,8 @@ function parseWeather(data) {
 	return {
 		tempF: Math.round(current.temperature_2m),
 		code: current.weather_code,
+		utcOffset: offset,
+		solarDays,
 		days,
 		sunrise: day >= 0 && Array.isArray(daily.sunrise) ? weatherDate(daily.sunrise[day]) : null,
 		sunset: day >= 0 && Array.isArray(daily.sunset) ? weatherDate(daily.sunset[day]) : null,

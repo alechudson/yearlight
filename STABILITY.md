@@ -1,4 +1,10 @@
-# Stabilization checkpoint
+## Daylight layout
+
+The active design is documented in `README.md`. Its ruler follows sunrise → sunset in yellow and sunset → next sunrise in blue, without a midnight reset. `tests/daylight.cjs` covers the rendered HUD, phase boundaries, midnight continuity, pre-dawn startup, missing solar events and 12-hour formatting. `tests/phone.cjs` checks that the forecast request includes yesterday's solar events.
+
+The older checkpoint below describes a previous layout/network implementation; its test counts and removed rain/temperature-chart details are historical, not current acceptance criteria. Physical-watch overnight, reconnection and battery testing remains required.
+
+# Historical stabilization checkpoint
 
 ## Verified
 

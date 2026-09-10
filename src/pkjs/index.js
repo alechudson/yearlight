@@ -27,7 +27,7 @@ function fetchWeather(lat, lon) {
 		+ "&current=temperature_2m,weather_code"
 		+ "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
 		+ "&timeformat=unixtime&timezone=auto"
-		+ "&temperature_unit=fahrenheit&forecast_days=7";
+		+ "&temperature_unit=fahrenheit&forecast_days=7&past_days=1";
 	var xhr = new XMLHttpRequest();
 	xhr.open("GET", url, true);
 	xhr.timeout = 15000;

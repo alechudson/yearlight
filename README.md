@@ -1,7 +1,17 @@
 # Watchface
 
-A Pebble Time 2 watchface: sunlight moving across a world map, with local
-weather, a 7-day high/low temperature trend, and sunrise / sunset.
+A Pebble Time 2 watchface: sunlight moving across a location-centered globe,
+with a large clock, date, local weather, and a day/night progress ruler.
+
+The **Daylight** layout keeps the globe and year stars unchanged:
+- Yellow ruler and sun marker: sunrise → sunset.
+- Muted-blue ruler and crescent marker: sunset → next sunrise, continuing across midnight.
+- The endpoint labels switch with the phase and use the forecast location's time offset.
+- Time follows the watch's 12/24-hour setting; temperatures are Fahrenheit.
+- `!` marks stale weather. Missing solar endpoints leave the ruler unfilled with `--:--` labels.
+
+The phone requests seven forecast days plus yesterday's solar events, so a
+fresh launch before dawn can locate the start of the night without guessing.
 
 No branding chrome — just the planet, the time, and the sky where you are.
 
