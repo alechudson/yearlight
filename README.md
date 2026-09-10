@@ -15,8 +15,6 @@ fresh launch before dawn can locate the start of the night without guessing.
 
 No branding chrome — just the planet, the time, and the sky where you are.
 
-Weather comes from [Open-Meteo](https://open-meteo.com) via the phone GPS.
-
 The on-watch name is `displayName` in `package.json` — change that when you
 pick a real name. UUID is unchanged so an already-installed build updates in
 place.
@@ -63,3 +61,11 @@ wscript                        Build rules — usually no need to edit
 ## Documentation
 
 Full SDK docs and tutorials: <https://developer.repebble.com>
+
+## Credits
+
+Inspired by Ren Gianforte's [Day and Night Earth](https://apps.repebble.com/day-and-night-earth-watchface_530bd23d3add7beccc0001e3) watchface ([source](https://github.com/rengianforte/pebble-day-night)). This is a separate implementation, not a fork.
+
+[Weather data by Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Globe geography is made with [Natural Earth](https://www.naturalearthdata.com/). Solar position follows [NOAA GML](https://gml.noaa.gov/grad/solcalc/) calculations.
+
+Full notices are in [CREDITS.md](CREDITS.md).

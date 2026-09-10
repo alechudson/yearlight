@@ -173,6 +173,7 @@ function formatTime(now) {
 }
 
 function moodFor(code) {
+	// Open-Meteo WMO weather interpretation codes.
 	switch (code) {
 		case 0: return "CLEAR";
 		case 1: case 2: case 3: return "CLOUD";
@@ -343,6 +344,7 @@ const MOON_PHASES = [
 ];
 
 function moonPhaseIndex(now) {
+	// Meeus, Astronomical Algorithms: new moon JDE 2451550.1, synodic month.
 	const jd = now.getTime() / 86400000 + 2440587.5;
 	let phase = (jd - 2451550.1) / 29.530588853;
 	phase -= Math.floor(phase);

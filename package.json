@@ -1,6 +1,7 @@
 {
   "name": "watchface",
   "author": "Alec Hudson",
+  "license": "MIT",
   "version": "1.0.0",
   "keywords": [
     "pebble-app"

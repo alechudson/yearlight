@@ -21,6 +21,7 @@ function fail(reason) {
 
 function fetchWeather(lat, lon) {
 	console.log("pkjs weather " + lat + "," + lon);
+	// Open-Meteo forecast API, CC BY 4.0: https://open-meteo.com/
 	var url = "http://api.open-meteo.com/v1/forecast"
 		+ "?latitude=" + lat
 		+ "&longitude=" + lon
@@ -54,7 +55,7 @@ function fetchWeather(lat, lon) {
 function ipLocate() {
 	console.log("pkjs ip locate");
 	var xhr = new XMLHttpRequest();
-	xhr.open("GET", "http://ip-api.com/json/?fields=status,lat,lon", true);
+	xhr.open("GET", "http://ip-api.com/json/?fields=status,lat,lon", true); // ip-api.com, free non-commercial
 	xhr.timeout = 10000;
 	xhr.onload = function () {
 		try {
