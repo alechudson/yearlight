@@ -17,7 +17,7 @@ const yellow = render.makeColor(255, 255, 0);
 const cyan = render.makeColor(0, 255, 255);
 const hudMuted = render.makeColor(85, 85, 85);
 const nightBlue = render.makeColor(0, 0, 255);
-const dayOcean = render.makeColor(0, 85, 255);
+const dayOcean = render.makeColor(0, 0, 255);
 const nightOcean = render.makeColor(0, 0, 170);
 const dayLand = render.makeColor(0, 255, 0);
 const nightLand = render.makeColor(0, 85, 0);
@@ -342,6 +342,36 @@ function drawSolarProgress(now, w) {
 		w - 9 - render.getTextWidth(endText, smallFont), 210);
 }
 
+function drawSunMark(x, y) {
+	render.fillRectangle(black, x - 4, y - 1, 9, 3);
+	render.fillRectangle(black, x - 1, y - 4, 3, 9);
+	render.fillRectangle(black, x - 3, y - 3, 1, 1);
+	render.fillRectangle(black, x + 3, y - 3, 1, 1);
+	render.fillRectangle(black, x - 3, y + 3, 1, 1);
+	render.fillRectangle(black, x + 3, y + 3, 1, 1);
+	render.fillRectangle(black, x - 2, y - 2, 1, 1);
+	render.fillRectangle(black, x + 2, y - 2, 1, 1);
+	render.fillRectangle(black, x - 2, y + 2, 1, 1);
+	render.fillRectangle(black, x + 2, y + 2, 1, 1);
+	render.fillRectangle(yellow, x - 3, y, 7, 1);
+	render.fillRectangle(yellow, x, y - 3, 1, 7);
+	render.fillRectangle(yellow, x - 1, y - 1, 3, 3);
+	render.fillRectangle(yellow, x - 3, y - 3, 1, 1);
+	render.fillRectangle(yellow, x + 3, y - 3, 1, 1);
+	render.fillRectangle(yellow, x - 3, y + 3, 1, 1);
+	render.fillRectangle(yellow, x + 3, y + 3, 1, 1);
+	render.fillRectangle(yellow, x - 2, y - 2, 1, 1);
+	render.fillRectangle(yellow, x + 2, y - 2, 1, 1);
+	render.fillRectangle(yellow, x - 2, y + 2, 1, 1);
+	render.fillRectangle(yellow, x + 2, y + 2, 1, 1);
+}
+
+function drawLocationPin(x, y) {
+	render.fillRectangle(black, x - 2, y - 1, 5, 3);
+	render.fillRectangle(black, x - 1, y - 2, 3, 5);
+	render.fillRectangle(white, x - 1, y - 1, 3, 3);
+}
+
 function drawScreen(event) {
 	const now = event?.date ?? lastDate;
 	if (event?.date)
@@ -370,18 +400,12 @@ function drawScreen(event) {
 		const cosLat0 = Math.cos(lat0);
 		const lon0 = origin.lon * Math.PI / 180;
 		const sunPip = projectGlobe(sun.lon, sun.lat, lon0, sinLat0, cosLat0);
-		if (sunPip) {
-			render.fillRectangle(black, sunPip.x - 2, sunPip.y - 1, 5, 3);
-			render.fillRectangle(black, sunPip.x - 1, sunPip.y - 2, 3, 5);
-			render.fillRectangle(yellow, sunPip.x - 1, sunPip.y, 3, 1);
-			render.fillRectangle(yellow, sunPip.x, sunPip.y - 1, 1, 3);
-		}
+		if (sunPip)
+			drawSunMark(sunPip.x, sunPip.y);
 		if (state.lat !== null) {
 			const pin = projectGlobe(state.lon, state.lat, lon0, sinLat0, cosLat0);
-			if (pin) {
-				render.fillRectangle(black, pin.x - 2, pin.y - 2, 5, 5);
-				render.fillRectangle(yellow, pin.x - 1, pin.y - 1, 3, 3);
-			}
+			if (pin)
+				drawLocationPin(pin.x, pin.y);
 		}
 		globeDrawn.lon = origin.lon;
 		globeDrawn.lat = origin.lat;

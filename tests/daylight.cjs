@@ -51,7 +51,7 @@ function forecast() {
 test('night globe stays a full palette step darker than day', () => {
   const h = boot();
   assert.equal(h.eval('nightOcean'), 170);
-  assert.equal(h.eval('dayOcean'), 0x0055ff);
+  assert.equal(h.eval('dayOcean'), 0x0000ff);
   assert.equal(h.eval('nightLand'), 0x005500);
   assert.equal(h.eval('dayLand'), 0x00ff00);
 });
@@ -181,7 +181,13 @@ test('a yellow sun mark sits at the subsolar point', () => {
   assert.ok(pip);
   assert.equal(h.eval('isNightLonLat(sunAt(new Date()).lon, sunAt(new Date()).lat, sunAt(new Date()))'), false);
   assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0xffff00 && c.y < 132
-    && c.x <= pip.x && c.x + c.width > pip.x && c.y <= pip.y && c.y + c.height > pip.y));
+    && c.x <= pip.x && c.x + c.width > pip.x && c.y <= pip.y && c.y + c.height > pip.y
+    && (c.width >= 7 || c.height >= 7)), 'sun is a plus, not a 3px square');
+  const pin = h.eval('(()=>{const o=viewOrigin();const lat0=o.lat*Math.PI/180;return projectGlobe(-97,30,o.lon*Math.PI/180,Math.sin(lat0),Math.cos(lat0));})()');
+  assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0xffffff && c.y < 132
+    && c.width === 3 && c.height === 3
+    && c.x <= pin.x && c.x + c.width > pin.x && c.y <= pin.y && c.y + c.height > pin.y),
+    'location is a small filled pip');
 });
 
 test('solstice and equinox stars stay cyan before they light', () => {
