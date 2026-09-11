@@ -21,7 +21,7 @@ The older checkpoint below describes a previous layout/network implementation; i
 - Location/network timeouts, bounded retry and late-result invalidation.
 - HTTPS forecast request includes hourly precipitation and daily sun events with Unix timestamps.
 - Defensive response validation and visible stale weather status.
-- Explicit XS pools: stack 6144, slots 24576, chunks 16384 bytes. Defaults caused fatal memory exhaustion. Firmware requires all three overrides together.
+- Explicit XS pools: stack 6144, slots 24576, chunks 24576 bytes. Defaults caused fatal memory exhaustion. Firmware requires all three overrides together. The 16384-byte chunk filled to 16312 after weather and is not safe.
 
 ## Remaining release gates
 

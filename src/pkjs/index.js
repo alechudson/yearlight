@@ -1,17 +1,32 @@
 var sendTries = 0;
 var lastPayload = null;
+var sending = false;
+var delivered = false;
+var wxGen = 0;
 var CACHE_KEY = "wx1";
+var CACHE_FRESH_MS = 15 * 60 * 1000;
 
 function sendToWatch(data) {
 	var payload = typeof data === "string" ? data : JSON.stringify(data);
 	if (payload !== lastPayload)
 		sendTries = 0;
 	lastPayload = payload;
+	if (sending)
+		return;
+	sending = true;
 	sendTries += 1;
-	Pebble.sendAppMessage({ PAYLOAD: payload }, function () {
-		console.log("pkjs sent " + payload.length);
+	var outgoing = lastPayload;
+	Pebble.sendAppMessage({ PAYLOAD: outgoing }, function () {
+		sending = false;
 		sendTries = 0;
+		try {
+			if (!JSON.parse(outgoing).error)
+				delivered = true;
+		} catch (e) {}
+		if (lastPayload !== outgoing)
+			sendToWatch(lastPayload);
 	}, function () {
+		sending = false;
 		console.log("pkjs send fail " + sendTries);
 		if (sendTries < 6)
 			setTimeout(function () { sendToWatch(lastPayload); }, 2000);
@@ -35,9 +50,15 @@ function writeCache(data) {
 	} catch (e) {}
 }
 
+function cacheFresh(cache) {
+	return cache && isFinite(cache.updatedAt) && Date.now() - cache.updatedAt < CACHE_FRESH_MS;
+}
+
 function fail(reason) {
 	console.log("pkjs fail " + reason);
-	sendToWatch(JSON.stringify({ error: 1 }));
+	if (delivered)
+		return;
+	sendToWatch({ error: 1 });
 }
 
 function slimWeather(data) {
@@ -59,8 +80,9 @@ function slimWeather(data) {
 
 function fetchWeather(lat, lon) {
 	console.log("pkjs weather " + lat + "," + lon);
+	var gen = ++wxGen;
 	// Open-Meteo forecast API, CC BY 4.0: https://open-meteo.com/
-	var url = "http://api.open-meteo.com/v1/forecast"
+	var url = "https://api.open-meteo.com/v1/forecast"
 		+ "?latitude=" + lat
 		+ "&longitude=" + lon
 		+ "&current=temperature_2m,weather_code"
@@ -71,6 +93,8 @@ function fetchWeather(lat, lon) {
 	xhr.open("GET", url, true);
 	xhr.timeout = 15000;
 	xhr.onload = function () {
+		if (gen !== wxGen)
+			return;
 		if (xhr.status < 200 || xhr.status > 299) {
 			fail("wx http " + xhr.status);
 			return;
@@ -88,31 +112,57 @@ function fetchWeather(lat, lon) {
 			fail("wx json " + e);
 		}
 	};
-	xhr.onerror = function () { fail("wx net"); };
-	xhr.ontimeout = function () { fail("wx timeout"); };
+	xhr.onerror = function () {
+		if (gen !== wxGen)
+			return;
+		fail("wx net");
+	};
+	xhr.ontimeout = function () {
+		if (gen !== wxGen)
+			return;
+		fail("wx timeout");
+	};
 	xhr.send();
 }
 
 function ipLocate() {
 	console.log("pkjs ip locate");
+	var gen = ++wxGen;
+	// GeoJS IP geolocation, HTTPS, no API key: https://www.geojs.io/
 	var xhr = new XMLHttpRequest();
-	xhr.open("GET", "http://ip-api.com/json/?fields=status,lat,lon", true); // ip-api.com, free non-commercial
+	xhr.open("GET", "https://get.geojs.io/v1/ip/geo.json", true);
 	xhr.timeout = 10000;
 	xhr.onload = function () {
+		if (gen !== wxGen)
+			return;
+		if (xhr.status < 200 || xhr.status > 299) {
+			fail("ip http " + xhr.status);
+			return;
+		}
 		try {
 			var data = JSON.parse(xhr.responseText);
-			if (data.status !== "success" || !isFinite(data.lat) || !isFinite(data.lon)) {
+			var lat = +data.latitude;
+			var lon = +data.longitude;
+			if (!isFinite(lat) || !isFinite(lon)) {
 				fail("ip json");
 				return;
 			}
-			console.log("pkjs ip " + data.lat + "," + data.lon);
-			fetchWeather(data.lat, data.lon);
+			console.log("pkjs ip " + lat + "," + lon);
+			fetchWeather(lat, lon);
 		} catch (e) {
 			fail("ip parse " + e);
 		}
 	};
-	xhr.onerror = function () { fail("ip net"); };
-	xhr.ontimeout = function () { fail("ip timeout"); };
+	xhr.onerror = function () {
+		if (gen !== wxGen)
+			return;
+		fail("ip net");
+	};
+	xhr.ontimeout = function () {
+		if (gen !== wxGen)
+			return;
+		fail("ip timeout");
+	};
 	xhr.send();
 }
 
@@ -166,12 +216,18 @@ Pebble.addEventListener("ready", function () {
 	var cache = readCache();
 	if (cache) {
 		sendToWatch(cache);
-		fetchWeather(cache.lat, cache.lon);
+		if (!cacheFresh(cache))
+			fetchWeather(cache.lat, cache.lon);
 	}
 	locateThenWeather(false);
 });
 
 Pebble.addEventListener("appmessage", function (e) {
-	if (e.payload && e.payload.CMD)
+	if (!(e.payload && e.payload.CMD))
+		return;
+	var cache = readCache();
+	if (cache)
+		fetchWeather(cache.lat, cache.lon);
+	else
 		locateThenWeather(true);
 });

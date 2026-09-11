@@ -69,6 +69,8 @@ test('phone requests yesterday through tomorrow so a pre-dawn launch has the pre
   const h = loadPkjs();
   vm.runInContext('fetchWeather(30, -97)', h.context);
   const url = new URL(h.xhrs[0].url);
+  assert.equal(url.protocol, 'https:');
+  assert.equal(url.hostname, 'api.open-meteo.com');
   assert.equal(url.searchParams.get('past_days'), '1');
   assert.equal(url.searchParams.get('forecast_days'), '2');
   assert.equal(url.searchParams.get('timeformat'), 'unixtime');
@@ -110,20 +112,66 @@ test('ready replays the last forecast before waiting on GPS', () => {
   assert.deepEqual(payloadOf(h.sent[0]).weather.current, cache.weather.current);
   assert.equal(h.xhrs.length, 1);
   assert.match(h.xhrs[0].url, /latitude=30/);
-  assert.equal(h.xhrs.some(x => /ip-api/.test(x.url)), false);
+  assert.equal(h.xhrs.some(x => /geojs/.test(x.url)), false);
 });
 
-test('hourly refresh fetches even when the cached coordinates have not moved', () => {
-  const cache = {lat: 30, lon: -97, updatedAt: 1, weather: {current: {temperature_2m: 70, weather_code: 0}}};
-  let geoCb;
+test('ready skips Open-Meteo when the cached forecast is still fresh', () => {
+  const cache = {lat: 30, lon: -97, updatedAt: Date.now(), weather: {current: {temperature_2m: 70, weather_code: 0}}};
   const h = loadPkjs({
     store: {wx1: JSON.stringify(cache)},
     geo: {
-      getCurrentPosition(ok) { geoCb = ok; },
+      getCurrentPosition() {},
+    },
+  });
+  h.listeners.ready();
+  assert.equal(h.sent.length, 1);
+  assert.equal(h.xhrs.length, 0);
+});
+
+test('GPS failure with no cache falls back to HTTPS IP geolocation then weather', () => {
+  const h = loadPkjs();
+  h.listeners.ready();
+  const ipUrl = new URL(h.xhrs[0].url);
+  assert.equal(ipUrl.protocol, 'https:');
+  assert.equal(ipUrl.hostname, 'get.geojs.io');
+  h.xhrs[0].status = 200;
+  h.xhrs[0].responseText = JSON.stringify({latitude: '30.2', longitude: '-97.7'});
+  h.xhrs[0].onload();
+  const wxUrl = new URL(h.xhrs[1].url);
+  assert.equal(wxUrl.hostname, 'api.open-meteo.com');
+  assert.equal(wxUrl.searchParams.get('latitude'), '30.2');
+  assert.equal(wxUrl.searchParams.get('longitude'), '-97.7');
+});
+
+test('hourly refresh reuses cached coordinates without a GPS fix', () => {
+  const cache = {lat: 30, lon: -97, updatedAt: 1, weather: {current: {temperature_2m: 70, weather_code: 0}}};
+  let gpsCalls = 0;
+  const h = loadPkjs({
+    store: {wx1: JSON.stringify(cache)},
+    geo: {
+      getCurrentPosition() { gpsCalls += 1; },
     },
   });
   h.listeners.appmessage({payload: {CMD: 1}});
-  geoCb({coords: {latitude: 30, longitude: -97}});
+  assert.equal(gpsCalls, 0);
   assert.equal(h.xhrs.length, 1);
   assert.match(h.xhrs[0].url, /latitude=30/);
+});
+
+test('a second send waits until the first AppMessage settles', () => {
+  const h = loadPkjs();
+  vm.runInContext('sendToWatch({a:1}); sendToWatch({b:2})', h.context);
+  assert.equal(h.sent.length, 1);
+  assert.equal(payloadOf(h.sent[0]).a, 1);
+  h.sent[0].ok();
+  assert.equal(h.sent.length, 2);
+  assert.equal(payloadOf(h.sent[1]).b, 2);
+});
+
+test('fail does not send an error after a forecast already landed', () => {
+  const h = loadPkjs();
+  vm.runInContext('sendToWatch({lat:30,lon:-97,weather:{current:{temperature_2m:70,weather_code:0}}})', h.context);
+  h.sent[0].ok();
+  vm.runInContext('fail("wx net")', h.context);
+  assert.equal(h.sent.length, 1);
 });

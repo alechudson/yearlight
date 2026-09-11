@@ -1,5 +1,5 @@
 {
-  "name": "watchface",
+  "name": "yearlight",
   "author": "Alec Hudson",
   "license": "MIT",
   "version": "1.0.0",
@@ -11,7 +11,7 @@
     "@moddable/pebbleproxy": "^0.2.0"
   },
   "pebble": {
-    "displayName": "Watchface",
+    "displayName": "Yearlight",
     "uuid": "cf9c0d01-1aa2-44b2-a79f-644baa16d24c",
     "projectType": "moddable",
     "sdkVersion": "3",

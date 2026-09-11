@@ -20,7 +20,7 @@ int main(void) {
     .stack = 6144,
     .slot = 24576,
     .chunk = 24576, // All three pools must be explicit; reserve native RAM for maps/Bluetooth.
-    .flags = kModdableCreationFlagLogInstrumentation,
+    .flags = 0,
   };
   moddable_createMachine(&cr);
 #endif

@@ -1,6 +1,6 @@
 # Credits
 
-This watchface is original code by Alec Hudson except as noted below.
+Yearlight is original code by Alec Hudson except as noted below.
 It is not a fork of any other Pebble project.
 
 ## Inspiration
@@ -32,8 +32,8 @@ here and in the README.
 - https://open-meteo.com/en/licence
 - https://creativecommons.org/licenses/by/4.0/
 
-If phone GPS is unavailable, the phone falls back to [ip-api](https://ip-api.com/)
-for approximate coordinates. The free API is for non-commercial use.
+If phone GPS is unavailable, the phone falls back to [GeoJS](https://www.geojs.io/)
+for approximate coordinates over HTTPS.
 
 Weather-condition numbers are [WMO interpretation codes](https://open-meteo.com/en/docs)
 as served by Open-Meteo. The 16px icons drawn on the watch are original.

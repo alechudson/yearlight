@@ -66,6 +66,7 @@ test('Daylight HUD replaces the week sticks with local sunrise, sunset and a noo
   assert.equal(clock.color, 0);
   assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0xffffff && c.y === 132 && c.height >= 90));
   assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0 && c.x <= 100 && c.x + c.width > 100 && c.y <= 205 && c.y + c.height >= 205 && c.height >= 7), 'midday marker is centered on the ruler');
+  assert.ok(!h.calls.some(c => c.kind === 'rect' && c.y === 205 && ![0, 0xffffff].includes(c.color)), 'daytime ruler has no colored fill');
   assert.ok(!h.calls.some(c => c.kind === 'rect' && c.color === 0xffffff && c.y >= 210 && c.width === 2 && c.height > 1), 'old weekly sticks are removed');
 });
 
@@ -169,7 +170,7 @@ test('missing, polar, expired and non-adjacent solar data show no invented progr
     h.tick(kind === 'expired' ? '2026-09-12T06:00:00Z' : kind === 'zero' ? '2026-09-09T06:00:00Z' : '2026-09-10T06:00:00Z');
     assert.equal(h.eval('solarPhaseFor(new Date())'), null, kind);
     assert.ok(h.texts().includes('RISE --:--'), kind);
-    assert.ok(!h.calls.some(c => c.kind === 'rect' && c.y >= 200 && [0x0000ff,0xffaa00].includes(c.color)), kind);
+    assert.ok(!h.calls.some(c => c.kind === 'rect' && c.y >= 200 && c.color === 0x0000ff), kind);
   }
 });
 

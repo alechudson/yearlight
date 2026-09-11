@@ -1,10 +1,10 @@
-# Watchface
+# Yearlight
 
 A Pebble Time 2 watchface: sunlight moving across a location-centered globe,
 with a large clock, date, local weather, and a day/night progress ruler.
 
 The **Daylight** layout keeps the globe and year stars unchanged:
-- Yellow ruler and sun marker: sunrise → sunset.
+- Black ruler and marker: sunrise → sunset.
 - Muted-blue ruler and crescent marker: sunset → next sunrise, continuing across midnight.
 - The endpoint labels switch with the phase and use the forecast location's time offset.
 - Time follows the watch's 12/24-hour setting; temperatures are Fahrenheit.
@@ -15,9 +15,24 @@ fresh launch before dawn can locate the start of the night without guessing.
 
 No branding chrome — just the planet, the time, and the sky where you are.
 
-The on-watch name is `displayName` in `package.json` — change that when you
-pick a real name. UUID is unchanged so an already-installed build updates in
-place.
+The on-watch and store name is **Yearlight** (`displayName` in `package.json`).
+The UUID is unchanged so an already-installed build updates in place.
+
+## Appstore (not published yet)
+
+The listing is created later with `pebble login` then `pebble publish`. Until
+then, sideload with `pebble install`. Before the first upload:
+
+- Capture Emery shots named `emery_*.png` from a daily-driver build, not perf artifacts.
+- Wear it through location denial, Bluetooth drop, overnight rollover, and battery.
+
+```sh
+pebble screenshot --no-open --emulator emery emery_day.png
+pebble publish --release-notes "First public release"
+```
+
+Omit `--is-published` to create the listing without making it public. Bump
+`version` in `package.json` for every later release.
 
 ## Building & running
 

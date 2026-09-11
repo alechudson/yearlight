@@ -17,7 +17,6 @@ const yellow = render.makeColor(255, 255, 0);
 const cyan = render.makeColor(0, 255, 255);
 const hudMuted = render.makeColor(85, 85, 85);
 const nightBlue = render.makeColor(0, 0, 255);
-const dayFill = render.makeColor(255, 170, 0);
 const dayOcean = render.makeColor(0, 85, 255);
 const nightOcean = render.makeColor(0, 0, 170);
 const dayLand = render.makeColor(0, 255, 0);
@@ -36,6 +35,7 @@ const state = {
 
 let lastDate = new Date();
 let phoneWritable = false;
+let defaultGlobe = false;
 const phone = new Message({
 	keys: ["PAYLOAD", "CMD"],
 	input: 1024,
@@ -330,7 +330,8 @@ function drawSolarProgress(now, w) {
 	if (phase) {
 		const progress = (now - phase.start) / (phase.end - phase.start);
 		const x = left + Math.round(progress * (right - left));
-		render.fillRectangle(night ? nightBlue : dayFill, left, y, x - left, 1);
+		if (night)
+			render.fillRectangle(nightBlue, left, y, x - left, 1);
 		drawSolarDot(x, y);
 	}
 	const offset = weather ? weather.utcOffset : 0;
@@ -341,7 +342,7 @@ function drawSolarProgress(now, w) {
 		w - 9 - render.getTextWidth(endText, smallFont), 210);
 }
 
-function drawScreen(event, allowDefaultGlobe) {
+function drawScreen(event) {
 	const now = event?.date ?? lastDate;
 	if (event?.date)
 		lastDate = event.date;
@@ -352,7 +353,7 @@ function drawScreen(event, allowDefaultGlobe) {
 	const origin = viewOrigin();
 	const step = (now.getTime() / TERMINATOR_MS) | 0;
 	const stars = litStarCount(now);
-	const canShade = state.lat !== null || allowDefaultGlobe;
+	const canShade = state.lat !== null || defaultGlobe;
 	const globeDirty = canShade && (globeDrawn.lon !== origin.lon || globeDrawn.lat !== origin.lat
 		|| globeDrawn.step !== step || globeDrawn.stars !== stars);
 
@@ -464,7 +465,9 @@ function weatherFailed() {
 		state.status = "offline";
 	else if (Date.now() - state.updatedAt >= 7200000)
 		state.status = "stale";
-	drawScreen(undefined, true);
+	if (state.lat === null)
+		defaultGlobe = true;
+	drawScreen();
 }
 
 function applyPayload(text) {
@@ -523,8 +526,10 @@ watch.addEventListener("resize", event => {
 watch.addEventListener("hourchange", requestRefresh);
 drawScreen();
 setTimeout(() => {
-	if (state.lat === null)
-		drawScreen(undefined, true);
+	if (state.lat === null) {
+		defaultGlobe = true;
+		drawScreen();
+	}
 }, 2000);
 setTimeout(() => {
 	if (state.lat === null)

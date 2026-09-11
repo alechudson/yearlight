@@ -103,3 +103,13 @@ test('a new location redraws the globe on the same minute', () => {
 	assert.equal(h.begins[0].length, 0);
 	assert.ok(h.globeRects().length > 0);
 });
+
+test('default globe survives the next minute until location arrives', () => {
+	const h = boot();
+	h.eval('defaultGlobe = true');
+	h.eval('drawScreen()');
+	assert.ok(h.globeRects().length > 10);
+	h.tick('2026-09-09T18:01:00Z');
+	assert.deepEqual(h.begins[0], [0, 132, 200, 96]);
+	assert.equal(h.globeRects().length, 0);
+});
