@@ -226,6 +226,8 @@ Pebble.addEventListener("appmessage", function (e) {
 	if (!(e.payload && e.payload.CMD))
 		return;
 	var cache = readCache();
+	if (cacheFresh(cache))
+		return;
 	if (cache)
 		fetchWeather(cache.lat, cache.lon);
 	else

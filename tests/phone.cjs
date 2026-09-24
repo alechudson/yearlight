@@ -158,6 +158,13 @@ test('hourly refresh reuses cached coordinates without a GPS fix', () => {
   assert.match(h.xhrs[0].url, /latitude=30/);
 });
 
+test('hourly refresh skips the fetch when a launch just refreshed the forecast', () => {
+  const cache = {lat: 30, lon: -97, updatedAt: Date.now(), weather: {current: {temperature_2m: 70, weather_code: 0}}};
+  const h = loadPkjs({store: {wx1: JSON.stringify(cache)}, geo: {getCurrentPosition() {}}});
+  h.listeners.appmessage({payload: {CMD: 1}});
+  assert.equal(h.xhrs.length, 0);
+});
+
 test('a second send waits until the first AppMessage settles', () => {
   const h = loadPkjs();
   vm.runInContext('sendToWatch({a:1}); sendToWatch({b:2})', h.context);

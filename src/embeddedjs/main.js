@@ -18,7 +18,7 @@ const cyan = render.makeColor(0, 255, 255);
 const hudMuted = render.makeColor(85, 85, 85);
 const nightBlue = render.makeColor(0, 0, 255);
 const dayOcean = render.makeColor(0, 0, 255);
-const nightOcean = render.makeColor(0, 0, 170);
+const nightOcean = render.makeColor(0, 0, 85);
 const dayLand = render.makeColor(0, 255, 0);
 const nightLand = render.makeColor(0, 85, 0);
 
@@ -162,36 +162,77 @@ function viewOrigin() {
 
 const TERMINATOR_MS = 30 * 60 * 1000;
 const globeDrawn = { lon: 9999, lat: 9999, step: -1, stars: -1 };
+const GLOBE_COLORS = [dayOcean, nightOcean, dayLand, nightLand];
 
-function drawMap(sun) {
-	const origin = viewOrigin();
+// One land bit per 2x2 globe sample. Land depends only on the view origin, so the
+// asin/atan2 inverse projection runs on relocation, not on every terminator step.
+const SAMPLE_W = MAP_W >> 1;
+const landBits = new Uint8Array((SAMPLE_W * (MAP_H >> 1) + 7) >> 3);
+const landFor = { lon: 9999, lat: 9999 };
+
+function cacheLand(origin, lon0, sinLat0, cosLat0) {
+	landBits.fill(0);
+	for (let y = 0; y < MAP_H; y += 2) {
+		const yn = (GLOBE_CY - (y + 1)) / GLOBE_R;
+		for (let x = 0; x < MAP_W; x += 2) {
+			const xn = (x + 1 - GLOBE_CX) / GLOBE_R;
+			const rr = xn * xn + yn * yn;
+			if (rr > 1)
+				continue;
+			const z = Math.sqrt(1 - rr);
+			const lat = Math.asin(Math.max(-1, Math.min(1, yn * cosLat0 + z * sinLat0))) * 180 / Math.PI;
+			let lon = (lon0 + Math.atan2(xn, z * cosLat0 - yn * sinLat0)) * 180 / Math.PI;
+			lon = ((lon + 180) % 360 + 360) % 360 - 180;
+			if (isLand(lon, lat)) {
+				const i = (y >> 1) * SAMPLE_W + (x >> 1);
+				landBits[i >> 3] |= 1 << (i & 7);
+			}
+		}
+	}
+	landFor.lon = origin.lon;
+	landFor.lat = origin.lat;
+}
+
+function drawMap(sun, origin) {
 	const lon0 = origin.lon * Math.PI / 180;
 	const lat0 = origin.lat * Math.PI / 180;
 	const sinLat0 = Math.sin(lat0);
 	const cosLat0 = Math.cos(lat0);
-	const colors = [dayOcean, nightOcean, dayLand, nightLand];
+	const sinLon0 = Math.sin(lon0);
+	const cosLon0 = Math.cos(lon0);
+	if (landFor.lon !== origin.lon || landFor.lat !== origin.lat)
+		cacheLand(origin, lon0, sinLat0, cosLat0);
+	// isNightLonLat as a dot product: the sun's direction rotated into the globe's
+	// view frame, so each sample needs no trig to find its side of the terminator.
+	const sunX = -sun.cosY * sun.cosX;
+	const sunY = -sun.cosY * sun.sinX;
+	const sunZ = -sun.sinY;
+	const a = sunX * cosLon0 + sunY * sinLon0;
+	const vx = sunY * cosLon0 - sunX * sinLon0;
+	const vy = sunZ * cosLat0 - a * sinLat0;
+	const vz = a * cosLat0 + sunZ * sinLat0;
 	render.fillRectangle(black, 0, 0, MAP_W, MAP_H);
 	for (let y = 0; y < MAP_H; y += 2) {
 		let runX = 0;
 		let runColor = -1;
 		const yn = (GLOBE_CY - (y + 1)) / GLOBE_R;
+		const row = (y >> 1) * SAMPLE_W;
 		for (let x = 0; x <= MAP_W; x += 2) {
 			let color = -1;
 			if (x < MAP_W) {
 				const xn = (x + 1 - GLOBE_CX) / GLOBE_R;
 				const rr = xn * xn + yn * yn;
 				if (rr <= 1) {
-					const z = Math.sqrt(1 - rr);
-					const lat = Math.asin(Math.max(-1, Math.min(1, yn * cosLat0 + z * sinLat0))) * 180 / Math.PI;
-					let lon = (lon0 + Math.atan2(xn, z * cosLat0 - yn * sinLat0)) * 180 / Math.PI;
-					lon = ((lon + 180) % 360 + 360) % 360 - 180;
-					color = (isLand(lon, lat) ? 2 : 0) + (isNightLonLat(lon, lat, sun) ? 1 : 0);
+					const i = row + (x >> 1);
+					const land = (landBits[i >> 3] >> (i & 7)) & 1;
+					const night = vx * xn + vy * yn + vz * Math.sqrt(1 - rr) < NIGHT_SIN;
+					color = (land ? 2 : 0) + (night ? 1 : 0);
 				}
 			}
 			if (color === runColor)
 				continue;
 			if (runColor >= 0)
-				render.fillRectangle(colors[runColor], runX, y, x - runX, 2);
+				render.fillRectangle(GLOBE_COLORS[runColor], runX, y, x - runX, 2);
 			runX = x;
 			runColor = color;
 		}
@@ -209,21 +250,15 @@ function drawYearStars(now) {
 		const x = STAR_X[i];
 		const y = STAR_Y[i];
 		const shape = STAR_SHAPE[i];
-		render.fillRectangle(color, x, y, 1, 1);
-		if (shape === 1)
-			render.fillRectangle(color, x + 1, y, 1, 1);
-		else if (shape >= 2) {
-			render.fillRectangle(color, x - 1, y, 1, 1);
-			render.fillRectangle(color, x + 1, y, 1, 1);
-			render.fillRectangle(color, x, y - 1, 1, 1);
-			render.fillRectangle(color, x, y + 1, 1, 1);
-			if (shape === 3) {
-				render.fillRectangle(color, x - 1, y - 1, 1, 1);
-				render.fillRectangle(color, x + 1, y - 1, 1, 1);
-				render.fillRectangle(color, x - 1, y + 1, 1, 1);
-				render.fillRectangle(color, x + 1, y + 1, 1, 1);
-			}
-		}
+		if (shape === 0)
+			render.fillRectangle(color, x, y, 1, 1);
+		else if (shape === 1)
+			render.fillRectangle(color, x, y, 2, 1);
+		else if (shape === 2) {
+			render.fillRectangle(color, x - 1, y, 3, 1);
+			render.fillRectangle(color, x, y - 1, 1, 3);
+		} else
+			render.fillRectangle(color, x - 1, y - 1, 3, 3);
 	}
 }
 
@@ -238,21 +273,39 @@ const WEATHER_ICONS = {
 	STORM: [0,0x03c0,0x07e0,0x0ff0,0x3ffc,0x7ffe,0x7ffe,0x3ffc,0x0300,0x0600,0x0c00,0x1f80,0x0300,0x0600,0x0c00,0x0800],
 };
 
-function drawWeatherIcon(now, x, y, color) {
+function iconMood(now, phase) {
 	if (!state.weather)
-		return;
+		return null;
 	let mood = moodFor(state.weather.code);
 	if (mood === "DRIZL" || mood === "SHWR")
 		mood = "RAIN";
-	if (mood === "CLEAR" && isNightLonLat(state.lon, state.lat, sunAt(now)))
+	if (mood === "CLEAR" && (phase ? phase.night : isNightLonLat(state.lon, state.lat, sunAt(now))))
 		mood = "MOON";
-	const rows = WEATHER_ICONS[mood];
+	return mood;
+}
+
+// One rectangle per horizontal run of set bits; `scale` is the pixel size.
+function drawBitRows(rows, width, x, y, scale, color) {
+	const top = 1 << (width - 1);
 	for (let row = 0; row < rows.length; row++) {
-		for (let col = 0; col < 16; col++) {
-			if (rows[row] & (0x8000 >> col))
-				render.fillRectangle(color, x + col, y + row, 1, 1);
+		const bits = rows[row];
+		let col = 0;
+		while (col < width) {
+			if (!(bits & (top >> col))) {
+				col++;
+				continue;
+			}
+			const start = col;
+			while (col < width && (bits & (top >> col)))
+				col++;
+			render.fillRectangle(color, x + start * scale, y + row * scale, (col - start) * scale, scale);
 		}
 	}
+}
+
+function drawWeatherIcon(mood, x, y, color) {
+	if (mood)
+		drawBitRows(WEATHER_ICONS[mood], 16, x, y, 1, color);
 }
 
 function formatSolarTime(date, offset) {
@@ -301,14 +354,8 @@ function moonPhaseIndex(now) {
 	return Math.round(phase * 8) % 8;
 }
 
-function drawMoonPhase(now, x, y, color) {
-	const rows = MOON_PHASES[moonPhaseIndex(now)];
-	for (let row = 0; row < rows.length; row++) {
-		for (let col = 0; col < 7; col++) {
-			if (rows[row] & (0x40 >> col))
-				render.fillRectangle(color, x + col * 2, y + row * 2, 2, 2);
-		}
-	}
+function drawMoonPhase(index, x, y, color) {
+	drawBitRows(MOON_PHASES[index], 7, x, y, 2, color);
 }
 
 function drawSolarDot(x, y) {
@@ -317,29 +364,38 @@ function drawSolarDot(x, y) {
 	render.fillRectangle(black, x - 4, y - 3, 9, 7);
 }
 
-function drawSolarProgress(now, w) {
+const RULER_Y = 205;
+
+function solarRuler(now, w, phase) {
 	const weather = state.weather;
-	const phase = solarPhaseFor(now);
 	const night = phase && phase.night;
 	const left = 13;
 	const right = w - 14;
-	const y = 205;
+	const offset = weather ? weather.utcOffset : 0;
+	return {
+		left,
+		right,
+		night,
+		x: phase ? left + Math.round((now - phase.start) / (phase.end - phase.start) * (right - left)) : null,
+		startText: (night ? "SET " : "RISE ") + formatSolarTime(phase && phase.start, offset),
+		endText: (night ? "RISE " : "SET ") + formatSolarTime(phase && phase.end, offset),
+	};
+}
+
+function drawSolarProgress(ruler, w) {
+	const { left, right, x } = ruler;
+	const y = RULER_Y;
 	render.fillRectangle(black, left, y, right - left + 1, 1);
 	render.fillRectangle(black, left, y - 3, 1, 7);
 	render.fillRectangle(black, right, y - 3, 1, 7);
-	if (phase) {
-		const progress = (now - phase.start) / (phase.end - phase.start);
-		const x = left + Math.round(progress * (right - left));
-		if (night)
+	if (x !== null) {
+		if (ruler.night)
 			render.fillRectangle(nightBlue, left, y, x - left, 1);
 		drawSolarDot(x, y);
 	}
-	const offset = weather ? weather.utcOffset : 0;
-	const startText = (night ? "SET " : "RISE ") + formatSolarTime(phase && phase.start, offset);
-	const endText = (night ? "RISE " : "SET ") + formatSolarTime(phase && phase.end, offset);
-	render.drawText(startText, smallFont, black, 9, 210);
-	render.drawText(endText, smallFont, black,
-		w - 9 - render.getTextWidth(endText, smallFont), 210);
+	render.drawText(ruler.startText, smallFont, black, 9, 210);
+	render.drawText(ruler.endText, smallFont, black,
+		w - 9 - render.getTextWidth(ruler.endText, smallFont), 210);
 }
 
 function drawSunMark(x, y) {
@@ -372,6 +428,16 @@ function drawLocationPin(x, y) {
 	render.fillRectangle(white, x - 1, y - 1, 3, 3);
 }
 
+// Bottom of the clock strip: the caption row starts at y=178.
+const CLOCK_H = 178 - MAP_H;
+// What the HUD below the clock last showed; minutes that only move the clock
+// push the clock strip instead of the whole HUD.
+const hudDrawn = { caption: null, ruler: null };
+
+function invalidateHud() {
+	hudDrawn.caption = null;
+}
+
 function drawScreen(event) {
 	const now = event?.date ?? lastDate;
 	if (event?.date)
@@ -387,13 +453,25 @@ function drawScreen(event) {
 	const globeDirty = canShade && (globeDrawn.lon !== origin.lon || globeDrawn.lat !== origin.lat
 		|| globeDrawn.step !== step || globeDrawn.stars !== stars);
 
+	const phase = solarPhaseFor(now);
+	const ruler = solarRuler(now, w, phase);
+	const mood = iconMood(now, phase);
+	const moon = moonPhaseIndex(now);
+	const dateStr = (DAYS[now.getDay()] + " " + MONTHS[now.getMonth()] + " " + now.getDate()).toUpperCase();
+	const stale = state.status === "stale";
+	const weatherStr = state.weather ? String(state.weather.tempF) + "°" + (stale ? "!" : "") : "--°";
+	const ink = stale || !state.weather ? hudMuted : black;
+	const caption = w + "x" + h + " " + dateStr + " " + weatherStr + " " + ink + " " + mood + " " + moon;
+	const rulerKey = ruler.x + " " + ruler.startText + " " + ruler.endText;
+	let full = true;
+
 	if (!canShade) {
 		render.begin();
 		render.fillRectangle(black, 0, 0, MAP_W, MAP_H);
 	} else if (globeDirty) {
 		render.begin();
 		const sun = sunAt(now);
-		drawMap(sun);
+		drawMap(sun, origin);
 		drawYearStars(now);
 		const lat0 = origin.lat * Math.PI / 180;
 		const sinLat0 = Math.sin(lat0);
@@ -411,10 +489,14 @@ function drawScreen(event) {
 		globeDrawn.lat = origin.lat;
 		globeDrawn.step = step;
 		globeDrawn.stars = stars;
-	} else
+	} else if (caption !== hudDrawn.caption || rulerKey !== hudDrawn.ruler)
 		render.begin(0, hudY, w, h - hudY);
+	else {
+		render.begin(0, hudY, w, CLOCK_H);
+		full = false;
+	}
 
-	render.fillRectangle(white, 0, hudY, w, h - hudY);
+	render.fillRectangle(white, 0, hudY, w, full ? h - hudY : CLOCK_H);
 
 	const timeStr = formatTime(now);
 	const period = watch.hour12 ? (now.getHours() < 12 ? "AM" : "PM") : "";
@@ -424,16 +506,16 @@ function drawScreen(event) {
 	if (period)
 		render.drawText(period, smallFont, hudMuted, timeX + timeW + 5, hudY + 26);
 
-	const dateStr = (DAYS[now.getDay()] + " " + MONTHS[now.getMonth()] + " " + now.getDate()).toUpperCase();
-	const stale = state.status === "stale";
-	const weatherStr = state.weather ? String(state.weather.tempF) + "°" + (stale ? "!" : "") : "--°";
-	const ink = stale || !state.weather ? hudMuted : black;
-	render.drawText(dateStr, dateFont, black, 9, 178);
-	drawMoonPhase(now, 9 + render.getTextWidth(dateStr, dateFont) + 8, 181, black);
-	const weatherX = w - 9 - render.getTextWidth(weatherStr, dateFont);
-	render.drawText(weatherStr, dateFont, ink, weatherX, 178);
-	drawWeatherIcon(now, weatherX - 22, 181, ink);
-	drawSolarProgress(now, w);
+	if (full) {
+		render.drawText(dateStr, dateFont, black, 9, 178);
+		drawMoonPhase(moon, 9 + render.getTextWidth(dateStr, dateFont) + 8, 181, black);
+		const weatherX = w - 9 - render.getTextWidth(weatherStr, dateFont);
+		render.drawText(weatherStr, dateFont, ink, weatherX, 178);
+		drawWeatherIcon(mood, weatherX - 22, 181, ink);
+		drawSolarProgress(ruler, w);
+		hudDrawn.caption = caption;
+		hudDrawn.ruler = rulerKey;
+	}
 
 	render.end();
 }
@@ -545,6 +627,7 @@ watch.addEventListener("minutechange", event => {
 });
 watch.addEventListener("resize", event => {
 	globeDrawn.step = -1;
+	invalidateHud();
 	drawScreen(event);
 });
 watch.addEventListener("hourchange", requestRefresh);

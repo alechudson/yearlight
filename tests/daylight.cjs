@@ -34,8 +34,9 @@ function boot() {
   }
   const evaluate = code => vm.runInContext(code, context);
   return {context, calls, events, eval:evaluate,
-    deliver(data) { context.payload = JSON.stringify(data); evaluate('applyPayload(payload)'); },
-    tick(iso) { now = Date.parse(iso); events.minutechange({date:new Clock()}); },
+    // These tests inspect HUD content, so every frame draws the whole HUD.
+    deliver(data) { evaluate('invalidateHud()'); context.payload = JSON.stringify(data); evaluate('applyPayload(payload)'); },
+    tick(iso) { evaluate('invalidateHud()'); now = Date.parse(iso); events.minutechange({date:new Clock()}); },
     texts() { return calls.filter(c => c.kind === 'text').map(c => c.text); }};
 }
 
@@ -50,7 +51,7 @@ function forecast() {
 
 test('night globe stays a full palette step darker than day', () => {
   const h = boot();
-  assert.equal(h.eval('nightOcean'), 170);
+  assert.equal(h.eval('nightOcean'), 85);
   assert.equal(h.eval('dayOcean'), 0x0000ff);
   assert.equal(h.eval('nightLand'), 0x005500);
   assert.equal(h.eval('dayLand'), 0x00ff00);
@@ -213,9 +214,9 @@ test('moon phase sits beside the date', () => {
   for (const row of rows)
     for (let col = 0; col < 7; col++)
       if (row & (0x40 >> col)) bits++;
-  const pixels = h.calls.filter(c => c.kind === 'rect' && c.color === 0 && c.width === 2 && c.height === 2
+  const pixels = h.calls.filter(c => c.kind === 'rect' && c.color === 0 && c.height === 2 && c.width % 2 === 0
     && c.y >= 180 && c.y < 198);
-  assert.equal(pixels.length, bits);
+  assert.equal(pixels.reduce((n, c) => n + c.width / 2, 0), bits);
   assert.ok(bits > 0);
   assert.ok(pixels.every(c => c.x >= date.x + date.width));
   assert.ok(pixels.every(c => c.x + c.width <= temp.x - 22));
