@@ -27,7 +27,15 @@ function boot() {
 		}
 		end() {}
 		fillRectangle(color, x, y, width, height) { calls.push({kind: 'rect', color, x, y, width, height}); }
-		drawText(text, font, color, x, y) { calls.push({kind: 'text', text, font, color, x, y, width: this.getTextWidth(text, font)}); }
+		drawText(text, font, color, x, y) {
+		  const last = calls[calls.length - 1];
+		  // drawTracked splits digits into runs; rejoin runs of one string.
+		  if (last && last.kind === 'text' && last.y === y && last.font === font && last.color === color && x === last.x + last.width + 1) {
+				last.text += text;
+				last.width = x + this.getTextWidth(text, font) - last.x;
+				return;
+		  }
+		  calls.push({kind: 'text', text, font, color, x, y, width: this.getTextWidth(text, font)}); }
 		getTextWidth(text, font) { return String(text).length * Math.ceil(font.size * 0.5); }
 	}
 	class Message { constructor() {} }

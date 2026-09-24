@@ -5,10 +5,10 @@ const vm = require('node:vm');
 const path = require('node:path');
 const wire = require('./wire.cjs');
 function boot(store) {
-  let now = Date.UTC(2026, 8, 9, 12), serial = 0;
+  let now = Date.UTC(2026, 8, 9, 12), serial = 0; let last = null;
   const timers = new Map(), events = {}, texts = [], messages = [];
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }
-  class Poco { constructor() { this.Font = class {}; this.unobstructed = {width:200,height:228}; } makeColor(){return 0;} begin(){} end(){} fillRectangle(){} drawBitmap(){} drawLine(){} drawText(text){texts.push(text);} getTextWidth(){return 0;} }
+  class Poco { constructor() { this.Font = class {}; this.unobstructed = {width:200,height:228}; } makeColor(){return 0;} begin(){last=null;} end(){} fillRectangle(){last=null;} drawBitmap(){} drawLine(){} drawText(text,font,color,x,y){const key=font+'|'+color+'|'+y+'|'+x; if(last===key){texts[texts.length-1]+=text;} else texts.push(text); last=font+'|'+color+'|'+y+'|'+(x+1);} getTextWidth(){return 0;} }
   Poco.PebbleBitmap = class {};
   class Message {
     constructor(options) { this.options=options; messages.push(this); }

@@ -387,6 +387,35 @@ function solarRuler(now, w, phase) {
 	};
 }
 
+// Bold Gothic digits touch at the HUD sizes, so "24" reads as one glyph;
+// adjacent digits get a pixel of air.
+const DIGIT_GAP = 1;
+
+function isDigit(c) {
+	return c >= "0" && c <= "9";
+}
+
+function trackedWidth(text, font) {
+	let width = render.getTextWidth(text, font);
+	for (let i = 1; i < text.length; i++) {
+		if (isDigit(text[i - 1]) && isDigit(text[i]))
+			width += DIGIT_GAP;
+	}
+	return width;
+}
+
+function drawTracked(text, font, color, x, y) {
+	let start = 0;
+	for (let i = 1; i <= text.length; i++) {
+		if (i < text.length && !(isDigit(text[i - 1]) && isDigit(text[i])))
+			continue;
+		const part = text.slice(start, i);
+		render.drawText(part, font, color, x, y);
+		x += render.getTextWidth(part, font) + DIGIT_GAP;
+		start = i;
+	}
+}
+
 function drawSolarProgress(ruler, w) {
 	const { left, right, x } = ruler;
 	const y = RULER_Y;
@@ -398,9 +427,9 @@ function drawSolarProgress(ruler, w) {
 			render.fillRectangle(nightBlue, left, y, x - left, 1);
 		drawSolarDot(x, y);
 	}
-	render.drawText(ruler.startText, smallFont, black, SOLAR_INSET, SOLAR_LABEL_Y);
-	render.drawText(ruler.endText, smallFont, black,
-		w - SOLAR_INSET - render.getTextWidth(ruler.endText, smallFont), SOLAR_LABEL_Y);
+	drawTracked(ruler.startText, smallFont, black, SOLAR_INSET, SOLAR_LABEL_Y);
+	drawTracked(ruler.endText, smallFont, black,
+		w - SOLAR_INSET - trackedWidth(ruler.endText, smallFont), SOLAR_LABEL_Y);
 }
 
 function drawSunMark(x, y) {
@@ -512,10 +541,10 @@ function drawScreen(event) {
 		render.drawText(period, smallFont, hudMuted, timeX + timeW + 5, hudY + 26);
 
 	if (full) {
-		render.drawText(dateStr, dateFont, black, 9, CAPTION_Y);
-		drawMoonPhase(moon, 9 + render.getTextWidth(dateStr, dateFont) + 8, CAPTION_Y + 3, black);
-		const weatherX = w - 9 - render.getTextWidth(weatherStr, dateFont);
-		render.drawText(weatherStr, dateFont, ink, weatherX, CAPTION_Y);
+		drawTracked(dateStr, dateFont, black, 9, CAPTION_Y);
+		drawMoonPhase(moon, 9 + trackedWidth(dateStr, dateFont) + 8, CAPTION_Y + 3, black);
+		const weatherX = w - 9 - trackedWidth(weatherStr, dateFont);
+		drawTracked(weatherStr, dateFont, ink, weatherX, CAPTION_Y);
 		drawWeatherIcon(mood, weatherX - 22, CAPTION_Y + 3, ink);
 		drawSolarProgress(ruler, w);
 		hudDrawn.caption = caption;
