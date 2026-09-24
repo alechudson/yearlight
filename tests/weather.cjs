@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
-function boot() {
+const wire = require('./wire.cjs');
+function boot(store) {
   let now = Date.UTC(2026, 8, 9, 12), serial = 0;
   const timers = new Map(), events = {}, texts = [], messages = [];
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }
@@ -21,6 +22,8 @@ function boot() {
   const context = vm.createContext({Poco, Message, screen:{}, Date:Clock, console:{log(){}},
     watch:{hour12:false, connected:{pebblekit:true}, addEventListener(name, fn){events[name]=fn;}},
     setTimeout(fn, delay){const id=++serial; timers.set(id,{fn, at:now+delay}); return id;}, clearTimeout(id){timers.delete(id);}});
+  if (store) context.localStorage={getItem(k){return store.has(k)?store.get(k):null;}, setItem(k,v){store.set(k,String(v)); store.writes=(store.writes||0)+1;}};
+  context.fields = () => wire({lat:30, lon:-97, weather:context.data}).split(',');
   const mask = fs.readFileSync(path.join(__dirname,'../src/embeddedjs/worldmask.js'),'utf8').replace(/^export /gm,'');
   vm.runInContext(mask, context);
   const stars = fs.readFileSync(path.join(__dirname,'../src/embeddedjs/yearstars.js'),'utf8').replace(/^export /gm,'');
@@ -30,7 +33,7 @@ function boot() {
   return {context,events,timers,texts,messages, eval:code=>vm.runInContext(code,context),
     async flush(){for(let i=0;i<8;i++) await Promise.resolve();},
     async advance(ms){const end=now+ms; let count=0; while(true){const next=[...timers].filter(([,t])=>t.at<=end).sort((a,b)=>a[1].at-b[1].at)[0]; if(!next)break; if(++count>1000)throw Error('unbounded timers'); now=next[1].at; timers.delete(next[0]); next[1].fn(); await this.flush();} now=end;},
-    deliver(data){messages[0].deliver(typeof data==='string'?data:JSON.stringify(data));}};
+    deliver(data){messages[0].deliver(wire(data));}};
 }
 const valid = () => ({current:{temperature_2m:21.4,weather_code:1}});
 const wx = (weather=valid(), lat=30, lon=-97) => ({lat, lon, weather});
@@ -43,7 +46,7 @@ for (const [mood,codes] of Object.entries(moodGroups)) {
     test(`accepted WMO code ${code} has mood ${mood}`,()=>{
       const h=boot();
       h.context.data={current:{temperature_2m:20,weather_code:code}};
-      assert.notEqual(h.eval('parseWeather(data)'),null);
+      assert.notEqual(h.eval('parseWeather(fields())'),null);
       assert.equal(h.eval(`moodFor(${code})`),mood);
     });
   }
@@ -66,14 +69,14 @@ test('payload parser uses UTC seconds with the matching daily entry', ()=>{
 });
 test('parser rejects invalid current data and omits invalid optional samples',()=>{
   const h=boot();
-  for(const value of [NaN,Infinity,null,'20']) { h.context.data={current:{temperature_2m:value,weather_code:1}}; assert.equal(h.eval('parseWeather(data)'),null); }
-  for(const code of [undefined,null,NaN,Infinity,-1,4,100,'1']) { h.context.data={current:{temperature_2m:20,weather_code:code}}; assert.equal(h.eval('parseWeather(data)'),null); }
+  for(const value of [NaN,Infinity,null,'20']) { h.context.data={current:{temperature_2m:value,weather_code:1}}; assert.equal(h.eval('parseWeather(fields())'),null); }
+  for(const code of [undefined,null,NaN,Infinity,-1,4,100,'1']) { h.context.data={current:{temperature_2m:20,weather_code:code}}; assert.equal(h.eval('parseWeather(fields())'),null); }
   const sec=Date.UTC(2026,8,9)/1000;
   h.context.data={...valid(),daily:{time:[sec],sunrise:[null],sunset:['bad']}};
-  assert.equal(h.eval('parseWeather(data).solarDays[0].sunrise'),null);
-  assert.equal(h.eval('parseWeather(data).solarDays[0].sunset'),null);
+  assert.equal(h.eval('parseWeather(fields()).solarDays[0].sunrise'),null);
+  assert.equal(h.eval('parseWeather(fields()).solarDays[0].sunset'),null);
   h.context.data={...valid()};
-  assert.equal(h.eval('parseWeather(data).solarDays.length'),0);
+  assert.equal(h.eval('parseWeather(fields()).solarDays.length'),0);
 });
 test('bad payload and missing location stay offline',()=>{
   const h=boot();
@@ -134,9 +137,9 @@ test('daily selection follows location calendar day across UTC midnight',()=>{
   const h=boot();
   const sec=Date.UTC(2026,8,9)/1000;
   h.context.data={...valid(),utc_offset_seconds:-18000,daily:{time:[sec+18000,sec+104400],sunrise:[sec+39600,sec+126000],sunset:[sec+86400,sec+172800]}};
-  assert.equal(h.eval('parseWeather(data).solarDays[0].sunrise.getTime()'),(sec+39600)*1000);
+  assert.equal(h.eval('parseWeather(fields()).solarDays[0].sunrise.getTime()'),(sec+39600)*1000);
   h.context.data={...valid(),utc_offset_seconds:50400,daily:{time:[sec-50400,sec+36000],sunrise:[sec-28800,sec+57600],sunset:[sec+14400,sec+100800]}};
-  assert.equal(h.eval('parseWeather(data).solarDays[1].sunrise.getTime()'),(sec+57600)*1000);
+  assert.equal(h.eval('parseWeather(fields()).solarDays[1].sunrise.getTime()'),(sec+57600)*1000);
 });
 test('globe recenters on payload location',()=>{
   const h=boot();
@@ -161,5 +164,27 @@ test('globe tilt is clamped and the pin stays at true latitude',()=>{
   south.deliver(wx(valid(),-75,20));
   const so=south.eval('viewOrigin()');
   assert.equal(so.lat,-40); assert.equal(so.lon,20);
+});
+test('the last good payload is stored once and restored on relaunch',async()=>{
+  const store=new Map();
+  const h=boot(store);
+  h.deliver(wx());
+  h.deliver(wx());
+  h.deliver({error:1});
+  assert.equal(store.writes,1,'unchanged and error payloads do not rewrite flash');
+  const again=boot(store);
+  assert.equal(again.eval('state.lat'),null,'the clock paints before storage is read');
+  await again.advance(0);
+  assert.equal(again.eval('state.lat'),30);
+  assert.equal(again.eval('state.status'),'ready');
+  assert.ok(again.texts.includes('21°'));
+  assert.equal(store.writes,1);
+});
+test('a phone payload that beats the restore wins',async()=>{
+  const store=new Map([['wx','10,20,,50,0,0']]);
+  const h=boot(store);
+  h.deliver(wx());
+  await h.advance(0);
+  assert.equal(h.eval('state.lat'),30);
 });
 module.exports={boot,valid,wx};

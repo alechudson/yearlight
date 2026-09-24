@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
+const wire = require('./wire.cjs');
 
 function boot() {
   let now = Date.UTC(2026, 8, 9, 18);
@@ -35,7 +36,7 @@ function boot() {
   const evaluate = code => vm.runInContext(code, context);
   return {context, calls, events, eval:evaluate,
     // These tests inspect HUD content, so every frame draws the whole HUD.
-    deliver(data) { evaluate('invalidateHud()'); context.payload = JSON.stringify(data); evaluate('applyPayload(payload)'); },
+    deliver(data) { evaluate('invalidateHud()'); context.payload = wire(data); evaluate('applyPayload(payload)'); },
     tick(iso) { evaluate('invalidateHud()'); now = Date.parse(iso); events.minutechange({date:new Clock()}); },
     texts() { return calls.filter(c => c.kind === 'text').map(c => c.text); }};
 }

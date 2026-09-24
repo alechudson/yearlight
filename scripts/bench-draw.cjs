@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
+const wire = require('../tests/wire.cjs');
 const vm = require('node:vm');
 const {execFileSync} = require('node:child_process');
 
@@ -70,7 +71,7 @@ function boot(source) {
 	const evaluate = code => vm.runInContext(code, context);
 	return {
 		stats, events, eval: evaluate,
-		deliver(data) { context.payload = JSON.stringify(data); evaluate('applyPayload(payload)'); },
+		deliver(data) { context.payload = wire(data); evaluate('applyPayload(payload)'); },
 		tick(iso) { now = Date.parse(iso); events.minutechange({date: new Clock()}); },
 		resetStats() {
 			stats.asin = stats.atan2 = stats.sqrt = stats.sin = stats.cos = 0;

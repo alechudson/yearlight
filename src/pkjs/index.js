@@ -6,8 +6,30 @@ var wxGen = 0;
 var CACHE_KEY = "wx1";
 var CACHE_FRESH_MS = 15 * 60 * 1000;
 
+function wireNum(value) {
+	return typeof value === "number" && isFinite(value) ? String(value) : "";
+}
+
+// Flat CSV the watch can split without building JSON objects:
+// lat,lon,updatedAt,temp,code,utcOffset[,day,sunrise,sunset]... ("" = missing, "E" = error).
+function wirePayload(data) {
+	if (!data || data.error)
+		return "E";
+	var weather = data.weather || {};
+	var current = weather.current || {};
+	var daily = weather.daily || {};
+	var out = [wireNum(data.lat), wireNum(data.lon), wireNum(data.updatedAt),
+		wireNum(current.temperature_2m), wireNum(current.weather_code), wireNum(weather.utc_offset_seconds)];
+	var time = Array.isArray(daily.time) ? daily.time : [];
+	var sunrise = Array.isArray(daily.sunrise) ? daily.sunrise : [];
+	var sunset = Array.isArray(daily.sunset) ? daily.sunset : [];
+	for (var i = 0; i < time.length; i++)
+		out.push(wireNum(time[i]), wireNum(sunrise[i]), wireNum(sunset[i]));
+	return out.join(",");
+}
+
 function sendToWatch(data) {
-	var payload = typeof data === "string" ? data : JSON.stringify(data);
+	var payload = typeof data === "string" ? data : wirePayload(data);
 	if (payload !== lastPayload)
 		sendTries = 0;
 	lastPayload = payload;
@@ -19,10 +41,8 @@ function sendToWatch(data) {
 	Pebble.sendAppMessage({ PAYLOAD: outgoing }, function () {
 		sending = false;
 		sendTries = 0;
-		try {
-			if (!JSON.parse(outgoing).error)
-				delivered = true;
-		} catch (e) {}
+		if (outgoing !== "E")
+			delivered = true;
 		if (lastPayload !== outgoing)
 			sendToWatch(lastPayload);
 	}, function () {
@@ -216,8 +236,11 @@ Pebble.addEventListener("ready", function () {
 	var cache = readCache();
 	if (cache) {
 		sendToWatch(cache);
-		if (!cacheFresh(cache))
-			fetchWeather(cache.lat, cache.lon);
+		// Watchfaces relaunch after every notification or menu visit; a fresh
+		// forecast means the location is fresh enough too.
+		if (cacheFresh(cache))
+			return;
+		fetchWeather(cache.lat, cache.lon);
 	}
 	locateThenWeather(false);
 });

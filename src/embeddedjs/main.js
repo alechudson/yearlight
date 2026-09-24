@@ -527,36 +527,40 @@ function weatherDate(seconds) {
 	return Number.isFinite(date.getTime()) ? date : null;
 }
 
-function parseWeather(data) {
-	const current = data && data.current;
+function wireNumber(field) {
+	return field === undefined || field === "" ? NaN : Number(field);
+}
+
+// Fields from the phone's CSV payload: lat,lon,updatedAt,temp,code,utcOffset,
+// then day,sunrise,sunset triples in Unix seconds.
+function parseWeather(fields) {
+	const temp = wireNumber(fields[3]);
+	const code = wireNumber(fields[4]);
 	const codes = [0, 1, 2, 3, 45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99];
-	if (!current || !Number.isFinite(current.temperature_2m) || codes.indexOf(current.weather_code) < 0)
+	if (!Number.isFinite(temp) || codes.indexOf(code) < 0)
 		return null;
-	const daily = data.daily;
 	// Unix timestamps remain UTC; only calendar-day matching uses the location offset.
-	const offset = Number.isFinite(data.utc_offset_seconds) ? data.utc_offset_seconds : 0;
+	const utcOffset = wireNumber(fields[5]);
+	const offset = Number.isFinite(utcOffset) ? utcOffset : 0;
 	const today = Math.floor((Date.now() / 1000 + offset) / 86400);
 	const solarDays = [];
-	if (daily && Array.isArray(daily.time)) {
-		for (let i = 0; i < daily.time.length; i++) {
-			if (!Number.isFinite(daily.time[i]))
-				continue;
-			const stamp = Math.floor((daily.time[i] + offset) / 86400);
-			// Retain yesterday's sunset for a fresh launch or refresh before dawn.
-			if (stamp < today - 1)
-				continue;
-			if (solarDays.length < 4) {
-				solarDays.push({
-					day: stamp,
-					sunrise: Array.isArray(daily.sunrise) ? weatherDate(daily.sunrise[i]) : null,
-					sunset: Array.isArray(daily.sunset) ? weatherDate(daily.sunset[i]) : null,
-				});
-			}
-		}
+	for (let i = 6; i < fields.length && solarDays.length < 4; i += 3) {
+		const time = wireNumber(fields[i]);
+		if (!Number.isFinite(time))
+			continue;
+		const stamp = Math.floor((time + offset) / 86400);
+		// Retain yesterday's sunset for a fresh launch or refresh before dawn.
+		if (stamp < today - 1)
+			continue;
+		solarDays.push({
+			day: stamp,
+			sunrise: weatherDate(wireNumber(fields[i + 1])),
+			sunset: weatherDate(wireNumber(fields[i + 2])),
+		});
 	}
 	return {
-		tempF: Math.round(current.temperature_2m),
-		code: current.weather_code,
+		tempF: Math.round(temp),
+		code,
 		utcOffset: offset,
 		solarDays,
 	};
@@ -577,37 +581,58 @@ function weatherFailed() {
 }
 
 function applyPayload(text) {
-	let data;
-	try {
-		data = JSON.parse(text);
-	} catch (e) {
-		console.log("payload json " + e);
+	const fields = String(text).split(",");
+	if (fields.length < 2) {
 		weatherFailed();
 		return;
 	}
-	if (!data || data.error) {
-		weatherFailed();
-		return;
-	}
-	const lat = Number(data.lat);
-	const lon = Number(data.lon);
+	const lat = wireNumber(fields[0]);
+	const lon = wireNumber(fields[1]);
 	if (!validCoordinates(lat, lon)) {
 		weatherFailed();
 		return;
 	}
 	state.lat = lat;
 	state.lon = lon;
-	const parsed = parseWeather(data.weather);
+	const parsed = parseWeather(fields);
 	if (!parsed) {
 		drawScreen();
 		weatherFailed();
 		return;
 	}
 	state.weather = parsed;
-	const fetchedAt = Number(data.updatedAt);
+	const fetchedAt = wireNumber(fields[2]);
 	state.updatedAt = Number.isFinite(fetchedAt) && fetchedAt > 0 ? fetchedAt : Date.now();
 	state.status = Date.now() - state.updatedAt >= 7200000 ? "stale" : "ready";
 	drawScreen();
+	storePayload(text);
+}
+
+// The last good payload survives relaunches, so returning to the face does not
+// wait on the phone. Storage can be missing (tests) or fail; both are harmless.
+const STORE_KEY = "wx";
+let storedPayload = null;
+
+function storePayload(text) {
+	if (text === storedPayload)
+		return;
+	storedPayload = text;
+	try {
+		localStorage.setItem(STORE_KEY, text);
+	} catch (e) {
+	}
+}
+
+function restorePayload() {
+	if (state.lat !== null)
+		return;
+	try {
+		storedPayload = localStorage.getItem(STORE_KEY);
+	} catch (e) {
+		return;
+	}
+	if (storedPayload)
+		applyPayload(storedPayload);
 }
 
 function requestRefresh() {
@@ -632,6 +657,7 @@ watch.addEventListener("resize", event => {
 });
 watch.addEventListener("hourchange", requestRefresh);
 drawScreen();
+setTimeout(restorePayload, 0);
 setTimeout(() => {
 	if (state.lat === null) {
 		defaultGlobe = true;

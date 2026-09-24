@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
+const wire = require('./wire.cjs');
 
 function boot() {
 	let now = Date.UTC(2026, 8, 9, 18);
@@ -43,7 +44,7 @@ function boot() {
 	const evaluate = code => vm.runInContext(code, context);
 	return {
 		calls, begins, events, eval: evaluate,
-		deliver(data) { context.payload = JSON.stringify(data); evaluate('applyPayload(payload)'); },
+		deliver(data) { context.payload = wire(data); evaluate('applyPayload(payload)'); },
 		tick(iso) { now = Date.parse(iso); events.minutechange({date: new Clock()}); },
 		texts() { return calls.filter(c => c.kind === 'text').map(c => c.text); },
 		globeRects() { return calls.filter(c => c.kind === 'rect' && c.y + c.height <= 132); },

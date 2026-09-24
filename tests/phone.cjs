@@ -62,7 +62,7 @@ function loadPkjs(options = {}) {
 }
 
 function payloadOf(entry) {
-  return JSON.parse(entry.dict.PAYLOAD);
+  return entry.dict.PAYLOAD.split(',');
 }
 
 test('phone requests yesterday through tomorrow so a pre-dawn launch has the previous sunset', () => {
@@ -86,16 +86,11 @@ test('phone strips unused forecast fields before sending to the watch', () => {
   xhr.status = 200;
   xhr.responseText = JSON.stringify(OPEN_METEO);
   xhr.onload();
-  const payload = payloadOf(h.sent[0]);
-  assert.equal(payload.lat, 30);
-  assert.equal(payload.lon, -97);
-  assert.equal(payload.weather.current.temperature_2m, 87.7);
-  assert.equal(payload.weather.daily.sunrise.length, 3);
-  assert.equal(payload.weather.daily.temperature_2m_max, undefined);
-  assert.equal(payload.weather.elevation, undefined);
-  assert.equal(payload.weather.current_units, undefined);
-  assert.ok(payload.updatedAt > 0);
-  assert.ok(JSON.stringify(payload).length < JSON.stringify({lat: 30, lon: -97, weather: OPEN_METEO}).length);
+  const [lat, lon, updatedAt, temp, code, offset, ...days] = payloadOf(h.sent[0]);
+  assert.deepEqual([lat, lon, temp, code, offset], ['30', '-97', '87.7', '1', '-18000']);
+  assert.ok(Number(updatedAt) > 0);
+  assert.deepEqual(days, ['1', '10', '11', '2', '20', '21', '3', '30', '31']);
+  assert.ok(h.sent[0].dict.PAYLOAD.length < 80, 'flat CSV, no JSON keys');
   assert.equal(JSON.parse(h.store.get('wx1')).lat, 30);
 });
 
@@ -109,7 +104,7 @@ test('ready replays the last forecast before waiting on GPS', () => {
   });
   h.listeners.ready();
   assert.equal(h.sent.length, 1);
-  assert.deepEqual(payloadOf(h.sent[0]).weather.current, cache.weather.current);
+  assert.deepEqual(payloadOf(h.sent[0]).slice(3, 5), ['70', '0']);
   assert.equal(h.xhrs.length, 1);
   assert.match(h.xhrs[0].url, /latitude=30/);
   assert.equal(h.xhrs.some(x => /geojs/.test(x.url)), false);
@@ -117,15 +112,17 @@ test('ready replays the last forecast before waiting on GPS', () => {
 
 test('ready skips Open-Meteo when the cached forecast is still fresh', () => {
   const cache = {lat: 30, lon: -97, updatedAt: Date.now(), weather: {current: {temperature_2m: 70, weather_code: 0}}};
+  let gpsCalls = 0;
   const h = loadPkjs({
     store: {wx1: JSON.stringify(cache)},
     geo: {
-      getCurrentPosition() {},
+      getCurrentPosition() { gpsCalls += 1; },
     },
   });
   h.listeners.ready();
   assert.equal(h.sent.length, 1);
   assert.equal(h.xhrs.length, 0);
+  assert.equal(gpsCalls, 0, 'a relaunch inside the fresh window skips the location fix');
 });
 
 test('GPS failure with no cache falls back to HTTPS IP geolocation then weather', () => {
@@ -167,12 +164,18 @@ test('hourly refresh skips the fetch when a launch just refreshed the forecast',
 
 test('a second send waits until the first AppMessage settles', () => {
   const h = loadPkjs();
-  vm.runInContext('sendToWatch({a:1}); sendToWatch({b:2})', h.context);
+  vm.runInContext('sendToWatch("a"); sendToWatch("b")', h.context);
   assert.equal(h.sent.length, 1);
-  assert.equal(payloadOf(h.sent[0]).a, 1);
+  assert.equal(h.sent[0].dict.PAYLOAD, 'a');
   h.sent[0].ok();
   assert.equal(h.sent.length, 2);
-  assert.equal(payloadOf(h.sent[1]).b, 2);
+  assert.equal(h.sent[1].dict.PAYLOAD, 'b');
+});
+
+test('an error payload is a bare E', () => {
+  const h = loadPkjs();
+  vm.runInContext('fail("wx net")', h.context);
+  assert.equal(h.sent[0].dict.PAYLOAD, 'E');
 });
 
 test('fail does not send an error after a forecast already landed', () => {
