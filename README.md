@@ -3,6 +3,10 @@
 A Pebble Time 2 watchface: sunlight moving across a location-centered globe,
 with a large clock, date, local weather, and a day/night progress ruler.
 
+**[Get it on the Pebble Appstore](https://apps.repebble.com/d58b889bab2c41cdb5a1b267)**
+
+Bug reports and ideas are welcome in [Issues](https://github.com/alechudson/yearlight/issues).
+
 The **Daylight** layout keeps the globe and year stars unchanged:
 - Black ruler and marker: sunrise → sunset.
 - Muted-blue ruler and crescent marker: sunset → next sunrise, continuing across midnight.
@@ -18,21 +22,19 @@ No branding chrome — just the planet, the time, and the sky where you are.
 The on-watch and store name is **Yearlight** (`displayName` in `package.json`).
 The UUID is unchanged so an already-installed build updates in place.
 
-## Appstore (not published yet)
+## Appstore
 
-The listing is created later with `pebble login` then `pebble publish`. Until
-then, sideload with `pebble install`. Before the first upload:
-
-- Capture Emery shots named `emery_*.png` from a daily-driver build, not perf artifacts.
-- Wear it through location denial, Bluetooth drop, overnight rollover, and battery.
+Live at <https://apps.repebble.com/d58b889bab2c41cdb5a1b267>. To ship an update,
+bump `version` in `package.json`, then:
 
 ```sh
-pebble screenshot --no-open --emulator emery emery_day.png
-pebble publish --release-notes "First public release"
+pebble clean && pebble publish --is-published --no-gif-all-platforms \
+  --release-notes "What changed"
 ```
 
-Omit `--is-published` to create the listing without making it public. Bump
-`version` in `package.json` for every later release.
+`pebble clean` matters: an incremental build can keep a stale `appinfo.json`
+version. `--no-gif-all-platforms` keeps the day/night GIF on the listing instead
+of replacing it with a one-minute capture.
 
 ## Building & running
 
