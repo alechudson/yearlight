@@ -4,3 +4,8 @@ pebble-logs.txt
 pebble-logs.pid
 .lock-waf_darwin_build
 .DS_Store
+artifacts/perf/emulator-*.png
+artifacts/perf/compare.sqlite
+artifacts/perf/working-tree.json
+screenshot_emery.png
+*.log
