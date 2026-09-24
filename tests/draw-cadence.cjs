@@ -75,7 +75,7 @@ test('minute ticks keep the clock moving without redrawing the globe', () => {
 	assert.ok(h.globeRects().length > 0);
 	assert.match(h.texts().join(' '), /:00/);
 	h.tick('2026-09-09T18:01:00Z');
-	assert.deepEqual(h.begins[0], [0, 132, 200, 46], 'only the clock strip when the caption and ruler hold');
+	assert.deepEqual(h.begins[0], [0, 132, 200, 42], 'only the clock strip when the caption and ruler hold');
 	assert.equal(h.globeRects().length, 0);
 	assert.equal(h.texts().length, 1, 'just the clock');
 	h.tick('2026-09-09T18:29:00Z');
@@ -111,7 +111,7 @@ test('default globe survives the next minute until location arrives', () => {
 	h.eval('drawScreen()');
 	assert.ok(h.globeRects().length > 10);
 	h.tick('2026-09-09T18:01:00Z');
-	assert.deepEqual(h.begins[0], [0, 132, 200, 46]);
+	assert.deepEqual(h.begins[0], [0, 132, 200, 42]);
 	assert.equal(h.globeRects().length, 0);
 });
 
@@ -122,7 +122,7 @@ test('the whole HUD redraws when the sun marker moves or the caption changes', (
 	const dot = () => h.eval('hudDrawn.ruler');
 	const before = dot();
 	let minute = 2;
-	for (; minute < 10 && h.begins[0].length === 4 && h.begins[0][3] === 46; minute++)
+	for (; minute < 10 && h.begins[0].length === 4 && h.begins[0][3] === 42; minute++)
 		h.tick(`2026-09-09T18:0${minute}:00Z`);
 	assert.ok(minute < 10, 'the marker moves within a few minutes');
 	assert.deepEqual(h.begins[0], [0, 132, 200, 96]);

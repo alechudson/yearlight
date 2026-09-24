@@ -67,9 +67,9 @@ test('Daylight HUD replaces the week sticks with local sunrise, sunset and a noo
   const clock = h.calls.find(c => c.kind === 'text' && c.font.size === 42);
   assert.equal(clock.color, 0);
   assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0xffffff && c.y === 132 && c.height >= 90));
-  assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0 && c.x <= 100 && c.x + c.width > 100 && c.y <= 205 && c.y + c.height >= 205 && c.height >= 7), 'midday marker is centered on the ruler');
-  assert.ok(!h.calls.some(c => c.kind === 'rect' && c.y === 205 && ![0, 0xffffff].includes(c.color)), 'daytime ruler has no colored fill');
-  assert.ok(!h.calls.some(c => c.kind === 'rect' && c.color === 0xffffff && c.y >= 210 && c.width === 2 && c.height > 1), 'old weekly sticks are removed');
+  assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0 && c.x <= 100 && c.x + c.width > 100 && c.y <= 200 && c.y + c.height >= 200 && c.height >= 7), 'midday marker is centered on the ruler');
+  assert.ok(!h.calls.some(c => c.kind === 'rect' && c.y === 200 && ![0, 0xffffff].includes(c.color)), 'daytime ruler has no colored fill');
+  assert.ok(!h.calls.some(c => c.kind === 'rect' && c.color === 0xffffff && c.y >= 205 && c.width === 2 && c.height > 1), 'old weekly sticks are removed');
 });
 
 test('weather conditions render distinct pixel icons with a moon for clear nights', () => {
@@ -79,15 +79,15 @@ test('weather conditions render distinct pixel icons with a moon for clear night
     const data = forecast();
     data.weather.current.weather_code = code;
     h.deliver(data);
-    const pixels = h.calls.filter(c => c.kind === 'rect' && c.y >= 180 && c.y < 198);
+    const pixels = h.calls.filter(c => c.kind === 'rect' && c.y >= 176 && c.y < 194);
     assert.ok(pixels.length > 0, `icon exists for WMO ${code}`);
     shapes.add(JSON.stringify(pixels));
   }
   assert.equal(shapes.size, 6);
   h.deliver(forecast());
-  const day = h.calls.filter(c => c.kind === 'rect' && c.y >= 180 && c.y < 198);
+  const day = h.calls.filter(c => c.kind === 'rect' && c.y >= 176 && c.y < 194);
   h.tick('2026-09-09T06:00:00Z');
-  const night = h.calls.filter(c => c.kind === 'rect' && c.y >= 180 && c.y < 198);
+  const night = h.calls.filter(c => c.kind === 'rect' && c.y >= 176 && c.y < 194);
   assert.notDeepEqual(night, day);
 });
 
@@ -96,7 +96,7 @@ test('night runs from sunset to next sunrise without resetting at either midnigh
   const data = forecast();
   data.weather.daily.sunrise[1] += 3600;
   h.deliver(data);
-  const fillWidth = () => h.calls.find(c => c.kind === 'rect' && c.color === 0x0000ff && c.y === 205 && c.height === 1)?.width;
+  const fillWidth = () => h.calls.find(c => c.kind === 'rect' && c.color === 0x0000ff && c.y === 200 && c.height === 1)?.width;
   h.tick('2026-09-10T00:10:00Z');
   assert.deepEqual(h.texts().filter(t => /^(RISE|SET) /.test(t)), ['SET 19:00', 'RISE 08:00']);
   assert.ok(fillWidth() > 0, 'night fill starts after sunset');
@@ -105,10 +105,10 @@ test('night runs from sunset to next sunrise without resetting at either midnigh
   h.tick('2026-09-10T05:01:00Z');
   assert.ok(fillWidth() >= beforeMidnight, 'progress continues across location midnight');
   assert.deepEqual(h.texts().filter(t => /^(RISE|SET) /.test(t)), ['SET 19:00', 'RISE 08:00']);
-  assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0 && c.y <= 205 && c.y + c.height >= 205 && c.height >= 7 && c.width >= 7), 'progress dot');
+  assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0 && c.y <= 200 && c.y + c.height >= 200 && c.height >= 7 && c.width >= 7), 'progress dot');
   h.tick('2026-09-10T13:00:00Z');
   assert.deepEqual(h.texts().filter(t => /^(RISE|SET) /.test(t)), ['RISE 08:00', 'SET 19:00']);
-  assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0 && c.x <= 13 && c.y <= 205 && c.y + c.height >= 205 && c.width >= 7), 'sunrise starts the next daylight interval');
+  assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0 && c.x <= 16 && c.y <= 200 && c.y + c.height >= 200 && c.width >= 7), 'sunrise starts the next daylight interval');
 });
 
 test('12-hour mode labels both clock and solar times without squeezing the caption', () => {
@@ -125,7 +125,7 @@ test('12-hour mode labels both clock and solar times without squeezing the capti
   assert.ok(h.texts().includes('RISE 7:00a'));
   assert.ok(h.texts().includes('SET 7:00p'));
   h.deliver({error:1});
-  const caption = h.calls.filter(c => c.kind === 'text' && c.y === 178);
+  const caption = h.calls.filter(c => c.kind === 'text' && c.y === 174);
   assert.ok(caption[0].x + caption[0].width + 6 <= caption[1].x - 22);
   assert.ok(h.calls.filter(c => c.kind === 'text').every(c => c.x >= 0 && c.x + c.width <= 200));
 });
@@ -207,7 +207,7 @@ test('moon phase sits beside the date', () => {
   assert.equal(h.eval("moonPhaseIndex(new Date('2000-01-06T18:14:00Z'))"), 0);
   assert.equal(h.eval("moonPhaseIndex(new Date('2000-01-21T04:40:00Z'))"), 4);
   h.deliver(forecast());
-  const date = h.calls.find(c => c.kind === 'text' && c.y === 178 && !c.text.includes('°'));
+  const date = h.calls.find(c => c.kind === 'text' && c.y === 174 && !c.text.includes('°'));
   const temp = h.calls.find(c => c.kind === 'text' && c.text === '82°');
   const index = h.eval('moonPhaseIndex(new Date())');
   const rows = h.eval('MOON_PHASES[' + index + ']');
@@ -216,7 +216,7 @@ test('moon phase sits beside the date', () => {
     for (let col = 0; col < 7; col++)
       if (row & (0x40 >> col)) bits++;
   const pixels = h.calls.filter(c => c.kind === 'rect' && c.color === 0 && c.height === 2 && c.width % 2 === 0
-    && c.y >= 180 && c.y < 198);
+    && c.y >= 176 && c.y < 194);
   assert.equal(pixels.reduce((n, c) => n + c.width / 2, 0), bits);
   assert.ok(bits > 0);
   assert.ok(pixels.every(c => c.x >= date.x + date.width));

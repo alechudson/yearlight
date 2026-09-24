@@ -364,13 +364,18 @@ function drawSolarDot(x, y) {
 	render.fillRectangle(black, x - 4, y - 3, 9, 7);
 }
 
-const RULER_Y = 205;
+// The bottom row stays clear of the rounded screen corners the appstore's
+// Time 2 frame draws over screenshots.
+const CAPTION_Y = 174;
+const RULER_Y = 200;
+const SOLAR_LABEL_Y = 205;
+const SOLAR_INSET = 16;
 
 function solarRuler(now, w, phase) {
 	const weather = state.weather;
 	const night = phase && phase.night;
-	const left = 13;
-	const right = w - 14;
+	const left = SOLAR_INSET;
+	const right = w - SOLAR_INSET - 1;
 	const offset = weather ? weather.utcOffset : 0;
 	return {
 		left,
@@ -393,9 +398,9 @@ function drawSolarProgress(ruler, w) {
 			render.fillRectangle(nightBlue, left, y, x - left, 1);
 		drawSolarDot(x, y);
 	}
-	render.drawText(ruler.startText, smallFont, black, 9, 210);
+	render.drawText(ruler.startText, smallFont, black, SOLAR_INSET, SOLAR_LABEL_Y);
 	render.drawText(ruler.endText, smallFont, black,
-		w - 9 - render.getTextWidth(ruler.endText, smallFont), 210);
+		w - SOLAR_INSET - render.getTextWidth(ruler.endText, smallFont), SOLAR_LABEL_Y);
 }
 
 function drawSunMark(x, y) {
@@ -428,8 +433,8 @@ function drawLocationPin(x, y) {
 	render.fillRectangle(white, x - 1, y - 1, 3, 3);
 }
 
-// Bottom of the clock strip: the caption row starts at y=178.
-const CLOCK_H = 178 - MAP_H;
+// Bottom of the clock strip: the caption row starts below it.
+const CLOCK_H = CAPTION_Y - MAP_H;
 // What the HUD below the clock last showed; minutes that only move the clock
 // push the clock strip instead of the whole HUD.
 const hudDrawn = { caption: null, ruler: null };
@@ -507,11 +512,11 @@ function drawScreen(event) {
 		render.drawText(period, smallFont, hudMuted, timeX + timeW + 5, hudY + 26);
 
 	if (full) {
-		render.drawText(dateStr, dateFont, black, 9, 178);
-		drawMoonPhase(moon, 9 + render.getTextWidth(dateStr, dateFont) + 8, 181, black);
+		render.drawText(dateStr, dateFont, black, 9, CAPTION_Y);
+		drawMoonPhase(moon, 9 + render.getTextWidth(dateStr, dateFont) + 8, CAPTION_Y + 3, black);
 		const weatherX = w - 9 - render.getTextWidth(weatherStr, dateFont);
-		render.drawText(weatherStr, dateFont, ink, weatherX, 178);
-		drawWeatherIcon(mood, weatherX - 22, 181, ink);
+		render.drawText(weatherStr, dateFont, ink, weatherX, CAPTION_Y);
+		drawWeatherIcon(mood, weatherX - 22, CAPTION_Y + 3, ink);
 		drawSolarProgress(ruler, w);
 		hudDrawn.caption = caption;
 		hudDrawn.ruler = rulerKey;

@@ -9,3 +9,4 @@ artifacts/perf/compare.sqlite
 artifacts/perf/working-tree.json
 screenshot_emery.png
 *.log
+screenshots/
