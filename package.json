@@ -2,7 +2,7 @@
   "name": "yearlight",
   "author": "Alec Hudson",
   "license": "MIT",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "keywords": [
     "pebble-app"
   ],
@@ -23,7 +23,8 @@
       "watchface": true
     },
     "capabilities": [
-      "location"
+      "location",
+      "configurable"
     ],
     "messageKeys": [
     "PAYLOAD",

@@ -24,6 +24,7 @@ function loadPkjs(options = {}) {
   const xhrs = [];
   const sent = [];
   const timers = [];
+  const opened = [];
   const listeners = {};
   class XMLHttpRequest {
     constructor() {
@@ -48,6 +49,7 @@ function loadPkjs(options = {}) {
     Pebble: {
       addEventListener(name, fn) { listeners[name] = fn; },
       sendAppMessage(dict, ok, err) { sent.push({dict, ok, err}); },
+      openURL(url) { opened.push(url); },
     },
     navigator: {geolocation: geo},
     console: {log() {}},
@@ -58,7 +60,7 @@ function loadPkjs(options = {}) {
     isFinite,
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/pkjs/index.js'), 'utf8'), context);
-  return {context, xhrs, sent, timers, listeners, store};
+  return {context, xhrs, sent, timers, listeners, store, opened};
 }
 
 function payloadOf(entry) {
@@ -184,4 +186,42 @@ test('fail does not send an error after a forecast already landed', () => {
   h.sent[0].ok();
   vm.runInContext('fail("wx net")', h.context);
   assert.equal(h.sent.length, 1);
+});
+
+const CACHED = {lat: 30, lon: -97, updatedAt: 1, weather: {current: {temperature_2m: 70, weather_code: 0}}};
+
+test('temperatures go to the watch in Fahrenheit by default', () => {
+  const h = loadPkjs({store: {wx1: JSON.stringify(CACHED)}, geo: {getCurrentPosition() {}}});
+  h.listeners.ready();
+  assert.equal(payloadOf(h.sent[0])[3], '70');
+});
+
+test('choosing Celsius saves it and resends the cached forecast converted', () => {
+  const h = loadPkjs({store: {wx1: JSON.stringify(CACHED)}});
+  h.listeners.webviewclosed({response: encodeURIComponent(JSON.stringify({units: 'C'}))});
+  assert.equal(JSON.parse(h.store.get('cfg1')).units, 'C');
+  assert.equal(h.xhrs.length, 0, 'switching units needs no network');
+  assert.equal(payloadOf(h.sent[0])[3], '21.1');
+  h.sent[0].ok();
+  h.listeners.webviewclosed({response: encodeURIComponent(JSON.stringify({units: 'F'}))});
+  assert.equal(payloadOf(h.sent[1])[3], '70');
+});
+
+test('a cancelled or malformed settings page changes nothing', () => {
+  const h = loadPkjs({store: {wx1: JSON.stringify(CACHED)}});
+  for (const response of ['', 'CANCELLED', '%7B', encodeURIComponent('{"units":"K"}')])
+    h.listeners.webviewclosed({response});
+  h.listeners.webviewclosed(undefined);
+  assert.equal(h.store.has('cfg1'), false);
+  assert.equal(h.sent.length, 0);
+});
+
+test('the settings page opens with the current unit selected', () => {
+  const h = loadPkjs({store: {cfg1: JSON.stringify({units: 'C'})}});
+  h.listeners.showConfiguration();
+  assert.match(h.opened[0], /^data:text\/html;charset=utf-8,/);
+  const page = decodeURIComponent(h.opened[0].slice(h.opened[0].indexOf(',') + 1));
+  assert.match(page, /value="C" checked/);
+  assert.doesNotMatch(page, /value="F" checked/);
+  assert.match(page, /pebblejs:\/\/close#/);
 });

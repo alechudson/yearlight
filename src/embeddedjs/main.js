@@ -493,7 +493,7 @@ function drawScreen(event) {
 	const moon = moonPhaseIndex(now);
 	const dateStr = (DAYS[now.getDay()] + " " + MONTHS[now.getMonth()] + " " + now.getDate()).toUpperCase();
 	const stale = state.status === "stale";
-	const weatherStr = state.weather ? String(state.weather.tempF) + "°" + (stale ? "!" : "") : "--°";
+	const weatherStr = state.weather ? String(state.weather.temp) + "°" + (stale ? "!" : "") : "--°";
 	const ink = stale || !state.weather ? hudMuted : black;
 	const caption = w + "x" + h + " " + dateStr + " " + weatherStr + " " + ink + " " + mood + " " + moon;
 	const rulerKey = ruler.x + " " + ruler.startText + " " + ruler.endText;
@@ -593,7 +593,8 @@ function parseWeather(fields) {
 		});
 	}
 	return {
-		tempF: Math.round(temp),
+		// Already in the unit chosen in the phone settings.
+		temp: Math.round(temp),
 		code,
 		utcOffset: offset,
 		solarDays,

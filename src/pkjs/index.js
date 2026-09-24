@@ -5,9 +5,27 @@ var delivered = false;
 var wxGen = 0;
 var CACHE_KEY = "wx1";
 var CACHE_FRESH_MS = 15 * 60 * 1000;
+var SETTINGS_KEY = "cfg1";
+
+function readSettings() {
+	try {
+		var saved = JSON.parse(localStorage.getItem(SETTINGS_KEY));
+		return { units: saved && saved.units === "C" ? "C" : "F" };
+	} catch (e) {
+		return { units: "F" };
+	}
+}
 
 function wireNum(value) {
 	return typeof value === "number" && isFinite(value) ? String(value) : "";
+}
+
+// Open-Meteo is fetched and cached in °F; the chosen unit is applied on the
+// way to the watch, so switching units just resends the cache.
+function wireTemp(fahrenheit) {
+	if (typeof fahrenheit !== "number" || !isFinite(fahrenheit) || readSettings().units !== "C")
+		return fahrenheit;
+	return Math.round((fahrenheit - 32) * 50 / 9) / 10;
 }
 
 // Flat CSV the watch can split without building JSON objects:
@@ -19,7 +37,7 @@ function wirePayload(data) {
 	var current = weather.current || {};
 	var daily = weather.daily || {};
 	var out = [wireNum(data.lat), wireNum(data.lon), wireNum(data.updatedAt),
-		wireNum(current.temperature_2m), wireNum(current.weather_code), wireNum(weather.utc_offset_seconds)];
+		wireNum(wireTemp(current.temperature_2m)), wireNum(current.weather_code), wireNum(weather.utc_offset_seconds)];
 	var time = Array.isArray(daily.time) ? daily.time : [];
 	var sunrise = Array.isArray(daily.sunrise) ? daily.sunrise : [];
 	var sunset = Array.isArray(daily.sunset) ? daily.sunset : [];
@@ -255,4 +273,50 @@ Pebble.addEventListener("appmessage", function (e) {
 		fetchWeather(cache.lat, cache.lon);
 	else
 		locateThenWeather(true);
+});
+
+function settingsPage(settings) {
+	function option(value, label) {
+		return '<label><input type="radio" name="units" value="' + value + '"'
+			+ (settings.units === value ? " checked" : "") + '> ' + label + '</label>';
+	}
+	var html = '<!DOCTYPE html><html><head><meta charset="utf-8">'
+		+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
+		+ '<title>Yearlight</title><style>'
+		+ ':root{color-scheme:light dark;--bg:#f4f3f4;--card:#fff;--ink:#111;--muted:#666;--accent:#0a58ca}'
+		+ '@media (prefers-color-scheme:dark){:root{--bg:#111;--card:#1d1d1f;--ink:#f2f2f2;--muted:#9a9a9a;--accent:#4d8dff}}'
+		+ 'body{margin:0;padding:24px 16px;background:var(--bg);color:var(--ink);font:17px -apple-system,system-ui,sans-serif}'
+		+ 'h1{font-size:22px;margin:0 0 20px}fieldset{border:0;margin:0;padding:16px;background:var(--card);border-radius:12px}'
+		+ 'legend{float:left;width:100%;padding:0 0 10px;color:var(--muted);font-size:14px;text-transform:uppercase;letter-spacing:.04em}'
+		+ 'label{display:flex;align-items:center;gap:10px;padding:10px 0;font-size:18px}input{width:22px;height:22px;accent-color:var(--accent)}'
+		+ 'button{display:block;width:100%;margin-top:24px;padding:14px;border:0;border-radius:12px;background:var(--accent);color:#fff;font-size:18px;font-weight:600}'
+		+ '</style></head><body><h1>Yearlight</h1><fieldset><legend>Temperature</legend>'
+		+ option("F", "Fahrenheit (°F)") + option("C", "Celsius (°C)")
+		+ '</fieldset><button id="save">Save</button><script>'
+		+ 'document.getElementById("save").onclick=function(){'
+		+ 'var units=document.querySelector("input[name=units]:checked").value;'
+		+ 'location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify({units:units}));};'
+		+ '</script></body></html>';
+	return "data:text/html;charset=utf-8," + encodeURIComponent(html);
+}
+
+Pebble.addEventListener("showConfiguration", function () {
+	Pebble.openURL(settingsPage(readSettings()));
+});
+
+Pebble.addEventListener("webviewclosed", function (e) {
+	var chosen;
+	try {
+		chosen = JSON.parse(decodeURIComponent(e && e.response || ""));
+	} catch (err) {
+		return;
+	}
+	if (!chosen || (chosen.units !== "C" && chosen.units !== "F"))
+		return;
+	try {
+		localStorage.setItem(SETTINGS_KEY, JSON.stringify({ units: chosen.units }));
+	} catch (err) {}
+	var cache = readCache();
+	if (cache)
+		sendToWatch(cache);
 });
