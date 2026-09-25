@@ -3,8 +3,9 @@ var lastPayload = null;
 var sending = false;
 var delivered = false;
 var wxGen = 0;
-var CACHE_KEY = "wx1";
+var CACHE_KEY = "wx2";
 var CACHE_FRESH_MS = 15 * 60 * 1000;
+var MOVE_CHECK_MS = 10 * 60 * 1000;
 var SETTINGS_KEY = "cfg1";
 
 function readSettings() {
@@ -204,75 +205,142 @@ function ipLocate() {
 	xhr.send();
 }
 
+// About 2 km. Inside this box a new fix would not change the forecast grid.
 function samePlace(aLat, aLon, bLat, bLon) {
-	return Math.abs(aLat - bLat) < 0.05 && Math.abs(aLon - bLon) < 0.05;
+	return Math.abs(aLat - bLat) < 0.02 && Math.abs(aLon - bLon) < 0.02;
 }
 
-function locateThenWeather(force) {
+// Some phones ignore maximumAge and hand back an old position with a tight
+// accuracy, which would pin the forecast to where the phone used to be.
+function readFix(pos, maxAge) {
+	var coords = pos && pos.coords;
+	if (!coords || !isFinite(coords.latitude) || !isFinite(coords.longitude))
+		return null;
+	if (isFinite(pos.timestamp) && Date.now() - pos.timestamp > maxAge + 60000)
+		return null;
+	var accuracy = coords.accuracy;
+	return {
+		lat: coords.latitude,
+		lon: coords.longitude,
+		accuracy: typeof accuracy === "number" && isFinite(accuracy) ? accuracy : 1e9
+	};
+}
+
+// A network fix starts the forecast quickly. A fresh GPS fix replaces it when
+// the phone reports a tighter accuracy and the point has moved. A light check
+// only takes the network fix, and runs GPS when that fix leaves the cached place.
+function locateThenWeather(light) {
 	var cache = readCache();
-	var gotGps = false;
-	function onGps(lat, lon) {
-		if (gotGps)
+	var published = null;
+	var finished = false;
+	var best = null;
+	var pending = 0;
+	var fineStarted = false;
+
+	function publish(fix) {
+		if (published && samePlace(published.lat, published.lon, fix.lat, fix.lon))
 			return;
-		gotGps = true;
-		if (!force && cache && samePlace(cache.lat, cache.lon, lat, lon))
-			return;
-		fetchWeather(lat, lon);
-	}
-	function onFail() {
-		if (gotGps)
-			return;
-		gotGps = true;
-		if (cache) {
-			if (force)
-				fetchWeather(cache.lat, cache.lon);
+		if (!published && cache && samePlace(cache.lat, cache.lon, fix.lat, fix.lon)) {
+			published = fix;
 			return;
 		}
-		ipLocate();
+		published = fix;
+		fetchWeather(fix.lat, fix.lon);
 	}
+
+	function giveUp() {
+		if (finished || published)
+			return;
+		finished = true;
+		if (!cache)
+			ipLocate();
+	}
+
+	function note(fix) {
+		pending--;
+		if (fix && (!best || fix.accuracy < best.accuracy))
+			best = fix;
+		// 1500 m is already inside a forecast cell, so don't wait on GPS.
+		var ready = best && (best.accuracy <= 1500 || !cache || pending === 0);
+		if (ready)
+			publish(best);
+		else if (pending === 0 && !published)
+			giveUp();
+	}
+
+	function ask(high, timeout, maxAge) {
+		pending++;
+		navigator.geolocation.getCurrentPosition(function (pos) {
+			var fix = readFix(pos, maxAge);
+			console.log("pkjs " + (high ? "gps " : "net ")
+				+ (fix ? fix.lat + "," + fix.lon + " ±" + Math.round(fix.accuracy) : "bad"));
+			if (!high && (!light || (fix && !samePlace(cache.lat, cache.lon, fix.lat, fix.lon))))
+				startFine();
+			note(fix);
+		}, function (err) {
+			console.log("pkjs " + (high ? "gps fail " : "net fail ")
+				+ (err && err.code) + " " + (err && err.message));
+			if (!high && !light)
+				startFine();
+			note(null);
+		}, { enableHighAccuracy: high, timeout: timeout, maximumAge: maxAge });
+	}
+
+	function startFine() {
+		if (fineStarted)
+			return;
+		fineStarted = true;
+		ask(true, 20000, 0);
+	}
+
 	if (!navigator.geolocation) {
-		onFail();
+		giveUp();
 		return;
 	}
+	light = light && !!cache;
+	ask(false, 5000, light ? 120000 : 60000);
+	if (light)
+		return;
+	setTimeout(startFine, 5000);
 	if (!cache)
-		setTimeout(onFail, 8000);
-	navigator.geolocation.getCurrentPosition(
-		function (pos) {
-			console.log("pkjs gps " + pos.coords.latitude + "," + pos.coords.longitude);
-			onGps(pos.coords.latitude, pos.coords.longitude);
-		},
-		function (err) {
-			console.log("pkjs gps fail " + (err && err.code) + " " + (err && err.message));
-			onFail();
-		},
-		{ enableHighAccuracy: false, timeout: 7000, maximumAge: 600000 }
-	);
+		setTimeout(giveUp, 27000);
+}
+
+// Watchfaces relaunch after every notification or menu visit. A fresh
+// forecast only needs a cheap check that the phone hasn't moved; a stale one
+// is refetched for the cached place while the new fix comes in.
+function refresh() {
+	var cache = readCache();
+	if (cacheFresh(cache)) {
+		locateThenWeather(true);
+		return;
+	}
+	if (cache)
+		fetchWeather(cache.lat, cache.lon);
+	locateThenWeather(false);
+}
+
+// The watch only asks hourly, so follow a drive from the phone side too.
+function scheduleMoveCheck() {
+	setTimeout(function () {
+		refresh();
+		scheduleMoveCheck();
+	}, MOVE_CHECK_MS);
 }
 
 Pebble.addEventListener("ready", function () {
 	console.log("pkjs ready");
 	var cache = readCache();
-	if (cache) {
+	if (cache)
 		sendToWatch(cache);
-		// Watchfaces relaunch after every notification or menu visit; a fresh
-		// forecast means the location is fresh enough too.
-		if (cacheFresh(cache))
-			return;
-		fetchWeather(cache.lat, cache.lon);
-	}
-	locateThenWeather(false);
+	refresh();
+	scheduleMoveCheck();
 });
 
 Pebble.addEventListener("appmessage", function (e) {
 	if (!(e.payload && e.payload.CMD))
 		return;
-	var cache = readCache();
-	if (cacheFresh(cache))
-		return;
-	if (cache)
-		fetchWeather(cache.lat, cache.lon);
-	else
-		locateThenWeather(true);
+	refresh();
 });
 
 function settingsPage(settings) {

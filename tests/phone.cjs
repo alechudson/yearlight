@@ -93,13 +93,13 @@ test('phone strips unused forecast fields before sending to the watch', () => {
   assert.ok(Number(updatedAt) > 0);
   assert.deepEqual(days, ['1', '10', '11', '2', '20', '21', '3', '30', '31']);
   assert.ok(h.sent[0].dict.PAYLOAD.length < 80, 'flat CSV, no JSON keys');
-  assert.equal(JSON.parse(h.store.get('wx1')).lat, 30);
+  assert.equal(JSON.parse(h.store.get('wx2')).lat, 30);
 });
 
 test('ready replays the last forecast before waiting on GPS', () => {
   const cache = {lat: 30, lon: -97, updatedAt: 1, weather: {current: {temperature_2m: 70, weather_code: 0}}};
   const h = loadPkjs({
-    store: {wx1: JSON.stringify(cache)},
+    store: {wx2: JSON.stringify(cache)},
     geo: {
       getCurrentPosition() {},
     },
@@ -112,19 +112,67 @@ test('ready replays the last forecast before waiting on GPS', () => {
   assert.equal(h.xhrs.some(x => /geojs/.test(x.url)), false);
 });
 
-test('ready skips Open-Meteo when the cached forecast is still fresh', () => {
-  const cache = {lat: 30, lon: -97, updatedAt: Date.now(), weather: {current: {temperature_2m: 70, weather_code: 0}}};
-  let gpsCalls = 0;
-  const h = loadPkjs({
-    store: {wx1: JSON.stringify(cache)},
-    geo: {
-      getCurrentPosition() { gpsCalls += 1; },
-    },
-  });
+function freshCache() {
+  return {lat: 30, lon: -97, updatedAt: Date.now(), weather: {current: {temperature_2m: 70, weather_code: 0}}};
+}
+
+test('ready with a fresh forecast only takes a cheap network fix', () => {
+  const geo = recordingGeo();
+  const h = loadPkjs({store: {wx2: JSON.stringify(freshCache())}, geo});
   h.listeners.ready();
   assert.equal(h.sent.length, 1);
   assert.equal(h.xhrs.length, 0);
-  assert.equal(gpsCalls, 0, 'a relaunch inside the fresh window skips the location fix');
+  assert.equal(geo.calls.length, 1);
+  assert.equal(geo.calls[0].options.enableHighAccuracy, false);
+  geo.calls[0].ok(fix(30.001, -97, 3000));
+  assert.equal(geo.calls.length, 1, 'still in the same place, so no GPS');
+  assert.equal(h.xhrs.length, 0);
+  assert.equal(h.timers.some(t => t.delay === 5000), false, 'no GPS timer on a light check');
+});
+
+test('a fresh forecast follows the phone once the network fix moves', () => {
+  const geo = recordingGeo();
+  const h = loadPkjs({store: {wx2: JSON.stringify(freshCache())}, geo});
+  h.listeners.ready();
+  geo.calls[0].ok(fix(30.3, -97, 3000));
+  assert.equal(geo.calls.length, 2);
+  assert.equal(geo.calls[1].options.enableHighAccuracy, true);
+  assert.equal(h.xhrs.length, 0, 'a loose fix waits on GPS');
+  geo.calls[1].ok(fix(30.31, -97.01, 15));
+  assert.equal(new URL(h.xhrs[0].url).searchParams.get('latitude'), '30.31');
+});
+
+test('a tight network fix in a new place fetches without waiting on GPS', () => {
+  const geo = recordingGeo();
+  const h = loadPkjs({store: {wx2: JSON.stringify(freshCache())}, geo});
+  h.listeners.ready();
+  geo.calls[0].ok(fix(30.3, -97, 50));
+  assert.equal(new URL(h.xhrs[0].url).searchParams.get('latitude'), '30.3');
+});
+
+test('the phone rechecks location every ten minutes while the face runs', () => {
+  const geo = recordingGeo();
+  const h = loadPkjs({store: {wx2: JSON.stringify(freshCache())}, geo});
+  h.listeners.ready();
+  const tick = h.timers.find(t => t.delay === 600000);
+  assert.ok(tick);
+  tick.fn();
+  assert.equal(geo.calls.length, 2);
+  assert.equal(h.timers.filter(t => t.delay === 600000).length, 2, 'reschedules itself');
+});
+
+test('an old cached position is ignored instead of pinning the forecast', () => {
+  const geo = recordingGeo();
+  const h = loadPkjs({geo});
+  h.listeners.ready();
+  const old = fix(40, -74, 10);
+  old.timestamp = Date.now() - 3 * 3600 * 1000;
+  geo.calls[0].ok(old);
+  assert.equal(h.xhrs.length, 0);
+  const now = fix(30, -97, 10);
+  now.timestamp = Date.now();
+  geo.calls[1].ok(now);
+  assert.equal(new URL(h.xhrs[0].url).searchParams.get('latitude'), '30');
 });
 
 test('GPS failure with no cache falls back to HTTPS IP geolocation then weather', () => {
@@ -142,24 +190,123 @@ test('GPS failure with no cache falls back to HTTPS IP geolocation then weather'
   assert.equal(wxUrl.searchParams.get('longitude'), '-97.7');
 });
 
-test('hourly refresh reuses cached coordinates without a GPS fix', () => {
+function recordingGeo() {
+  const calls = [];
+  return {
+    calls,
+    getCurrentPosition(ok, err, options) {
+      calls.push({ok, err, options});
+    },
+  };
+}
+
+function fix(lat, lon, accuracy) {
+  return {coords: {latitude: lat, longitude: lon, accuracy}};
+}
+
+test('hourly refresh updates the cached forecast and requests a new fix', () => {
   const cache = {lat: 30, lon: -97, updatedAt: 1, weather: {current: {temperature_2m: 70, weather_code: 0}}};
   let gpsCalls = 0;
   const h = loadPkjs({
-    store: {wx1: JSON.stringify(cache)},
+    store: {wx2: JSON.stringify(cache)},
     geo: {
       getCurrentPosition() { gpsCalls += 1; },
     },
   });
   h.listeners.appmessage({payload: {CMD: 1}});
-  assert.equal(gpsCalls, 0);
+  assert.equal(gpsCalls, 1);
   assert.equal(h.xhrs.length, 1);
   assert.match(h.xhrs[0].url, /latitude=30/);
 });
 
+test('a cold start sends the network fix, then a tighter GPS fix if it moved', () => {
+  const geo = recordingGeo();
+  const h = loadPkjs({geo});
+  h.listeners.ready();
+  assert.equal(geo.calls.length, 1);
+  assert.equal(geo.calls[0].options.enableHighAccuracy, false);
+  assert.equal(geo.calls[0].options.maximumAge, 60000);
+  geo.calls[0].ok(fix(30, -97, 4000));
+  assert.equal(new URL(h.xhrs[0].url).searchParams.get('latitude'), '30');
+  assert.equal(geo.calls.length, 2);
+  assert.equal(geo.calls[1].options.enableHighAccuracy, true);
+  assert.equal(geo.calls[1].options.maximumAge, 0);
+  assert.equal(geo.calls[1].options.timeout, 20000);
+  geo.calls[1].ok(fix(30.05, -97, 20));
+  assert.equal(new URL(h.xhrs[1].url).searchParams.get('latitude'), '30.05');
+});
+
+test('a worse GPS reading does not replace a tighter network fix', () => {
+  const geo = recordingGeo();
+  const h = loadPkjs({geo});
+  h.listeners.ready();
+  geo.calls[0].ok(fix(30.2, -97.2, 40));
+  geo.calls[1].ok(fix(31, -98, 5000));
+  assert.equal(h.xhrs.length, 1);
+  assert.equal(new URL(h.xhrs[0].url).searchParams.get('latitude'), '30.2');
+});
+
+test('a cached forecast waits for GPS instead of adopting a loose network fix', () => {
+  const cache = {lat: 30, lon: -97, updatedAt: 1, weather: {current: {temperature_2m: 70, weather_code: 0}}};
+  const geo = recordingGeo();
+  const h = loadPkjs({store: {wx2: JSON.stringify(cache)}, geo});
+  h.listeners.ready();
+  assert.equal(h.xhrs.length, 1);
+  geo.calls[0].ok(fix(30.05, -97, 5000));
+  assert.equal(h.xhrs.length, 1);
+  geo.calls[1].ok(fix(30.001, -97, 25));
+  assert.equal(h.xhrs.length, 1);
+});
+
+test('GPS replaces the cached place once it moves about two kilometers', () => {
+  const cache = {lat: 30, lon: -97, updatedAt: 1, weather: {current: {temperature_2m: 70, weather_code: 0}}};
+  const geo = recordingGeo();
+  const h = loadPkjs({store: {wx2: JSON.stringify(cache)}, geo});
+  h.listeners.ready();
+  geo.calls[0].ok(fix(30, -97, 4000));
+  assert.equal(h.xhrs.length, 1);
+  geo.calls[1].ok(fix(30.04, -97.04, 30));
+  assert.equal(h.xhrs.length, 2);
+  const url = new URL(h.xhrs[1].url);
+  assert.equal(url.searchParams.get('latitude'), '30.04');
+  assert.equal(url.searchParams.get('longitude'), '-97.04');
+});
+
+test('network and GPS failure with no cache falls back to IP geolocation', () => {
+  const geo = recordingGeo();
+  const h = loadPkjs({geo});
+  h.listeners.ready();
+  geo.calls[0].err({code: 1, message: 'denied'});
+  geo.calls[1].err({code: 1, message: 'denied'});
+  assert.equal(new URL(h.xhrs[0].url).hostname, 'get.geojs.io');
+});
+
+test('a hung location request falls back to IP geolocation', () => {
+  const h = loadPkjs({geo: {getCurrentPosition() {}}});
+  h.listeners.ready();
+  assert.equal(h.xhrs.length, 0);
+  h.timers.find((t) => t.delay === 27000).fn();
+  assert.equal(new URL(h.xhrs[0].url).hostname, 'get.geojs.io');
+});
+
+test('a late GPS fix replaces an IP fallback', () => {
+  const geo = recordingGeo();
+  const h = loadPkjs({geo});
+  h.listeners.ready();
+  h.timers.find((t) => t.delay === 27000).fn();
+  h.xhrs[0].status = 200;
+  h.xhrs[0].responseText = JSON.stringify({latitude: '1', longitude: '2'});
+  h.xhrs[0].onload();
+  const before = h.xhrs.length;
+  h.timers.find((t) => t.delay === 5000).fn();
+  geo.calls[1].ok(fix(30, -97, 15));
+  assert.equal(h.xhrs.length, before + 1);
+  assert.equal(new URL(h.xhrs.at(-1).url).searchParams.get('latitude'), '30');
+});
+
 test('hourly refresh skips the fetch when a launch just refreshed the forecast', () => {
   const cache = {lat: 30, lon: -97, updatedAt: Date.now(), weather: {current: {temperature_2m: 70, weather_code: 0}}};
-  const h = loadPkjs({store: {wx1: JSON.stringify(cache)}, geo: {getCurrentPosition() {}}});
+  const h = loadPkjs({store: {wx2: JSON.stringify(cache)}, geo: {getCurrentPosition() {}}});
   h.listeners.appmessage({payload: {CMD: 1}});
   assert.equal(h.xhrs.length, 0);
 });
@@ -191,13 +338,13 @@ test('fail does not send an error after a forecast already landed', () => {
 const CACHED = {lat: 30, lon: -97, updatedAt: 1, weather: {current: {temperature_2m: 70, weather_code: 0}}};
 
 test('temperatures go to the watch in Fahrenheit by default', () => {
-  const h = loadPkjs({store: {wx1: JSON.stringify(CACHED)}, geo: {getCurrentPosition() {}}});
+  const h = loadPkjs({store: {wx2: JSON.stringify(CACHED)}, geo: {getCurrentPosition() {}}});
   h.listeners.ready();
   assert.equal(payloadOf(h.sent[0])[3], '70');
 });
 
 test('choosing Celsius saves it and resends the cached forecast converted', () => {
-  const h = loadPkjs({store: {wx1: JSON.stringify(CACHED)}});
+  const h = loadPkjs({store: {wx2: JSON.stringify(CACHED)}});
   h.listeners.webviewclosed({response: encodeURIComponent(JSON.stringify({units: 'C'}))});
   assert.equal(JSON.parse(h.store.get('cfg1')).units, 'C');
   assert.equal(h.xhrs.length, 0, 'switching units needs no network');
@@ -208,7 +355,7 @@ test('choosing Celsius saves it and resends the cached forecast converted', () =
 });
 
 test('a cancelled or malformed settings page changes nothing', () => {
-  const h = loadPkjs({store: {wx1: JSON.stringify(CACHED)}});
+  const h = loadPkjs({store: {wx2: JSON.stringify(CACHED)}});
   for (const response of ['', 'CANCELLED', '%7B', encodeURIComponent('{"units":"K"}')])
     h.listeners.webviewclosed({response});
   h.listeners.webviewclosed(undefined);
