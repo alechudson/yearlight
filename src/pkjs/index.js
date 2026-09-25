@@ -93,11 +93,16 @@ function cacheFresh(cache) {
 	return cache && isFinite(cache.updatedAt) && Date.now() - cache.updatedAt < CACHE_FRESH_MS;
 }
 
-function fail(reason) {
+// With a location but no forecast, the watch can still work out sunrise and
+// sunset itself, so send the place rather than a bare error.
+function fail(reason, lat, lon) {
 	console.log("pkjs fail " + reason);
 	if (delivered)
 		return;
-	sendToWatch({ error: 1 });
+	if (isFinite(lat) && isFinite(lon))
+		sendToWatch(lat + "," + lon);
+	else
+		sendToWatch({ error: 1 });
 }
 
 function slimWeather(data) {
@@ -135,7 +140,7 @@ function fetchWeather(lat, lon) {
 		if (gen !== wxGen)
 			return;
 		if (xhr.status < 200 || xhr.status > 299) {
-			fail("wx http " + xhr.status);
+			fail("wx http " + xhr.status, lat, lon);
 			return;
 		}
 		try {
@@ -148,18 +153,18 @@ function fetchWeather(lat, lon) {
 			writeCache(data);
 			sendToWatch(data);
 		} catch (e) {
-			fail("wx json " + e);
+			fail("wx json " + e, lat, lon);
 		}
 	};
 	xhr.onerror = function () {
 		if (gen !== wxGen)
 			return;
-		fail("wx net");
+		fail("wx net", lat, lon);
 	};
 	xhr.ontimeout = function () {
 		if (gen !== wxGen)
 			return;
-		fail("wx timeout");
+		fail("wx timeout", lat, lon);
 	};
 	xhr.send();
 }
@@ -211,12 +216,14 @@ function samePlace(aLat, aLon, bLat, bLon) {
 }
 
 // Some phones ignore maximumAge and hand back an old position with a tight
-// accuracy, which would pin the forecast to where the phone used to be.
+// accuracy, which would pin the forecast to where the phone used to be. Only a
+// plausible millisecond timestamp is trusted; the emulator sends a wrapped one.
 function readFix(pos, maxAge) {
 	var coords = pos && pos.coords;
 	if (!coords || !isFinite(coords.latitude) || !isFinite(coords.longitude))
 		return null;
-	if (isFinite(pos.timestamp) && Date.now() - pos.timestamp > maxAge + 60000)
+	var stamp = pos.timestamp;
+	if (isFinite(stamp) && stamp > 1e12 && Date.now() - stamp > maxAge + 60000)
 		return null;
 	var accuracy = coords.accuracy;
 	return {

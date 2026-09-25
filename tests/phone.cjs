@@ -321,6 +321,24 @@ test('a second send waits until the first AppMessage settles', () => {
   assert.equal(h.sent[1].dict.PAYLOAD, 'b');
 });
 
+test('a nonsense fix timestamp does not throw the fix away', () => {
+  const geo = recordingGeo();
+  const h = loadPkjs({geo});
+  h.listeners.ready();
+  const odd = fix(30, -97, 1000);
+  odd.timestamp = -640831233;
+  geo.calls[0].ok(odd);
+  assert.equal(new URL(h.xhrs[0].url).searchParams.get('latitude'), '30');
+});
+
+test('a failed forecast still sends the location so the watch can compute sunrise', () => {
+  const h = loadPkjs();
+  vm.runInContext('fetchWeather(30.2, -97.7)', h.context);
+  h.xhrs[0].status = 503;
+  h.xhrs[0].onload();
+  assert.equal(h.sent[0].dict.PAYLOAD, '30.2,-97.7');
+});
+
 test('an error payload is a bare E', () => {
   const h = loadPkjs();
   vm.runInContext('fail("wx net")', h.context);

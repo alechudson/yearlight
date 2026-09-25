@@ -171,7 +171,7 @@ test('phase changes happen exactly at sunset and sunrise, with markers inside th
   }
 });
 
-test('missing, polar, expired and non-adjacent solar data show no invented progress', () => {
+test('missing, expired and non-adjacent solar data fall back to computed sunrise and sunset', () => {
   for (const kind of ['missing', 'polar', 'expired', 'gap', 'zero']) {
     const h = boot();
     const data = forecast();
@@ -181,9 +181,42 @@ test('missing, polar, expired and non-adjacent solar data show no invented progr
     if (kind === 'zero') data.weather.daily.sunset = [...data.weather.daily.sunrise];
     h.deliver(data);
     h.tick(kind === 'expired' ? '2026-09-12T06:00:00Z' : kind === 'zero' ? '2026-09-09T06:00:00Z' : '2026-09-10T06:00:00Z');
-    assert.equal(h.eval('solarPhaseFor(new Date())'), null, kind);
-    assert.ok(h.texts().includes('RISE --:--'), kind);
-    assert.ok(!h.calls.some(c => c.kind === 'rect' && c.y >= 200 && c.color === 0x0000ff), kind);
+    const phase = h.eval('solarPhaseFor(new Date())');
+    assert.ok(phase && phase.night, kind);
+    assert.ok(!h.texts().includes('RISE --:--'), kind);
+    assert.ok(!h.calls.some(c => c.kind === 'rect' && c.y >= 200 && ![0, 0xffffff].includes(c.color)), kind);
+  }
+});
+
+test('computed sunrise and sunset match the forecast service within two minutes', () => {
+  // Open-Meteo for 30.3245,-97.7286 on 2026-09-25: rise 07:21, set 19:23 CDT.
+  const h = boot();
+  h.eval('state.lat = 30.3245; state.lon = -97.7286');
+  const day = h.eval(`solarPhaseIn(computedSolarDays(new Date(Date.UTC(2026, 8, 25, 18)), 30.3245, -97.7286), new Date(Date.UTC(2026, 8, 25, 18)))`);
+  assert.equal(day.night, false);
+  assert.ok(Math.abs(day.start.getTime() - Date.UTC(2026, 8, 25, 12, 21)) <= 120000, 'sunrise ' + day.start.toISOString());
+  assert.ok(Math.abs(day.end.getTime() - Date.UTC(2026, 8, 26, 0, 23)) <= 120000, 'sunset ' + day.end.toISOString());
+});
+
+test('a location with no forecast still gets a daylight ruler', () => {
+  const h = boot();
+  h.eval('applyPayload("30,-97")');
+  h.tick('2026-09-10T18:00:00Z');
+  assert.equal(h.eval('state.weather'), null);
+  const phase = h.eval('solarPhaseFor(new Date())');
+  assert.equal(phase.night, false);
+  assert.equal(phase.offset, null, 'labels use the watch time zone without a forecast offset');
+  assert.ok(h.texts().some(t => /^RISE \d\d:\d\d$/.test(t)));
+  assert.ok(h.texts().includes('--°'));
+});
+
+test('polar day and night have no sunrise or sunset to draw', () => {
+  for (const iso of ['2026-06-21T12:00:00Z', '2026-12-21T12:00:00Z']) {
+    const h = boot();
+    h.eval('applyPayload("80,15")');
+    h.tick(iso);
+    assert.equal(h.eval('solarPhaseFor(new Date())'), null, iso);
+    assert.ok(h.texts().includes('RISE --:--'), iso);
   }
 });
 

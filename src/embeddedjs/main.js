@@ -54,18 +54,17 @@ const phone = new Message({
 });
 
 function sunAt(now) {
-	// NOAA fractional-year approximation, using UTC rather than local time.
-	const year = now.getUTCFullYear();
-	const days = (Date.UTC(year + 1, 0, 1) - Date.UTC(year, 0, 1)) / 86400000;
-	const day = (now.getTime() - Date.UTC(year, 0, 1)) / 86400000;
-	const gamma = 2 * Math.PI * (day - 0.5) / days;
-	const equation = 229.18 * (0.000075 + 0.001868 * Math.cos(gamma)
-		- 0.032077 * Math.sin(gamma) - 0.014615 * Math.cos(2 * gamma)
-		- 0.040849 * Math.sin(2 * gamma));
-	const declination = 0.006918 - 0.399912 * Math.cos(gamma)
-		+ 0.070257 * Math.sin(gamma) - 0.006758 * Math.cos(2 * gamma)
-		+ 0.000907 * Math.sin(2 * gamma) - 0.002697 * Math.cos(3 * gamma)
-		+ 0.00148 * Math.sin(3 * gamma);
+	// Low-precision solar coordinates (Astronomical Almanac): about 0.01° in
+	// declination and a few seconds of equation of time, with no drift across years.
+	const n = now.getTime() / 86400000 - 10957.5;
+	const rad = Math.PI / 180;
+	const mean = (280.460 + 0.9856474 * n) % 360;
+	const g = (357.528 + 0.9856003 * n) * rad;
+	const lambda = (mean + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad;
+	const tilt = (23.439 - 0.0000004 * n) * rad;
+	const ra = Math.atan2(Math.cos(tilt) * Math.sin(lambda), Math.cos(lambda)) / rad;
+	const equation = 4 * (((mean - ra) % 360 + 540) % 360 - 180);
+	const declination = Math.asin(Math.sin(tilt) * Math.sin(lambda));
 	const minutes = now.getUTCHours() * 60 + now.getUTCMinutes() + now.getUTCSeconds() / 60;
 	// Map x=0 is longitude -180; map y grows southward.
 	const x = 2 * Math.PI - (minutes + equation) * Math.PI / 720;
@@ -307,21 +306,63 @@ function drawWeatherIcon(mood, x, y, color) {
 		drawBitRows(WEATHER_ICONS[mood], 16, x, y, 1, color);
 }
 
+// A null offset means the watch's own time zone.
 function formatSolarTime(date, offset) {
 	if (!date)
 		return "--:--";
-	const local = new Date(date.getTime() + offset * 1000);
-	const hours = local.getUTCHours();
+	const utc = offset !== null;
+	const local = utc ? new Date(date.getTime() + offset * 1000) : date;
+	const hours = utc ? local.getUTCHours() : local.getHours();
+	const minutes = utc ? local.getUTCMinutes() : local.getMinutes();
 	if (watch.hour12)
-		return (hours % 12 || 12) + ":" + pad2(local.getUTCMinutes()) + (hours < 12 ? "a" : "p");
-	return pad2(hours) + ":" + pad2(local.getUTCMinutes());
+		return (hours % 12 || 12) + ":" + pad2(minutes) + (hours < 12 ? "a" : "p");
+	return pad2(hours) + ":" + pad2(minutes);
+}
+
+// Sunrise and sunset from sunAt when the forecast has none for now: the phone
+// away for days, or the forecast service gone. Solar noon is when the subsolar
+// longitude reaches the place; one correction step lands within a minute.
+function computedSolarDay(k, lat, lon) {
+	let t = (k + 0.5 - lon / 360) * 86400000;
+	let sun = sunAt(new Date(t));
+	t += ((sun.lon - lon + 540) % 360 - 180) * 240000;
+	sun = sunAt(new Date(t));
+	const latR = lat * Math.PI / 180;
+	const decR = sun.lat * Math.PI / 180;
+	const cosH = (NIGHT_SIN - Math.sin(latR) * Math.sin(decR)) / (Math.cos(latR) * Math.cos(decR));
+	// Polar day or night: no sunrise or sunset to draw.
+	if (!(cosH >= -1 && cosH <= 1))
+		return { day: k, sunrise: null, sunset: null };
+	const half = Math.acos(cosH) / Math.PI * 43200000;
+	return { day: k, sunrise: new Date(t - half), sunset: new Date(t + half) };
+}
+
+const computedSolar = { k: NaN, lat: NaN, lon: NaN, days: null };
+
+function computedSolarDays(now, lat, lon) {
+	const k = Math.floor(now.getTime() / 86400000 + lon / 360);
+	if (computedSolar.k !== k || computedSolar.lat !== lat || computedSolar.lon !== lon) {
+		computedSolar.days = [computedSolarDay(k - 1, lat, lon), computedSolarDay(k, lat, lon), computedSolarDay(k + 1, lat, lon)];
+		computedSolar.k = k;
+		computedSolar.lat = lat;
+		computedSolar.lon = lon;
+	}
+	return computedSolar.days;
 }
 
 function solarPhaseFor(now) {
 	const weather = state.weather;
-	if (!weather)
-		return null;
-	const days = weather.solarDays;
+	const phase = weather && solarPhaseIn(weather.solarDays, now);
+	if (phase || state.lat === null)
+		return phase || null;
+	const computed = solarPhaseIn(computedSolarDays(now, state.lat, state.lon), now);
+	// Forecast offsets are for the forecast place; otherwise show watch time.
+	if (computed)
+		computed.offset = weather ? weather.utcOffset : null;
+	return computed;
+}
+
+function solarPhaseIn(days, now) {
 	for (let i = 0; i < days.length; i++) {
 		const day = days[i];
 		if (day.sunrise && day.sunset && day.sunrise <= now && now < day.sunset)
@@ -375,7 +416,7 @@ function solarRuler(now, w, phase) {
 	const night = phase && phase.night;
 	const left = SOLAR_INSET;
 	const right = w - SOLAR_INSET - 1;
-	const offset = weather ? weather.utcOffset : 0;
+	const offset = phase && phase.offset !== undefined ? phase.offset : weather ? weather.utcOffset : 0;
 	return {
 		left,
 		right,
