@@ -9,7 +9,7 @@ Bug reports and ideas are welcome in [Issues](https://github.com/alechudson/year
 
 The **Daylight** layout keeps the globe and year stars unchanged:
 - Black ruler and marker: sunrise → sunset.
-- Muted-blue ruler and crescent marker: sunset → next sunrise, continuing across midnight.
+- Black ruler and crescent marker: sunset → next sunrise, continuing across midnight.
 - The endpoint labels switch with the phase and use the forecast location's time offset.
 - Time follows the watch's 12/24-hour setting; temperatures are Fahrenheit.
 - `!` marks stale weather. Missing solar endpoints leave the ruler unfilled with `--:--` labels.

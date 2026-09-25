@@ -16,7 +16,6 @@ const white = render.makeColor(255, 255, 255);
 const yellow = render.makeColor(255, 255, 0);
 const cyan = render.makeColor(0, 255, 255);
 const hudMuted = render.makeColor(85, 85, 85);
-const nightBlue = render.makeColor(0, 0, 255);
 const dayOcean = render.makeColor(0, 0, 255);
 const nightOcean = render.makeColor(0, 0, 85);
 const dayLand = render.makeColor(0, 255, 0);
@@ -422,11 +421,8 @@ function drawSolarProgress(ruler, w) {
 	render.fillRectangle(black, left, y, right - left + 1, 1);
 	render.fillRectangle(black, left, y - 3, 1, 7);
 	render.fillRectangle(black, right, y - 3, 1, 7);
-	if (x !== null) {
-		if (ruler.night)
-			render.fillRectangle(nightBlue, left, y, x - left, 1);
+	if (x !== null)
 		drawSolarDot(x, y);
-	}
 	drawTracked(ruler.startText, smallFont, black, SOLAR_INSET, SOLAR_LABEL_Y);
 	drawTracked(ruler.endText, smallFont, black,
 		w - SOLAR_INSET - trackedWidth(ruler.endText, smallFont), SOLAR_LABEL_Y);
