@@ -3,10 +3,24 @@ import Message from "pebble/message";
 import { MASK, MASK_W, MASK_H } from "worldmask";
 import { STAR_N, STAR_X, STAR_Y, STAR_SHAPE, litStarCount, isSeasonStar } from "yearstars";
 
-const MAP_W = 200;
-const MAP_H = 132;
-
 const render = new Poco(screen);
+
+// Round 2 (gabbro, 260x260) stacks the same sky-over-HUD layout inside the
+// circle: a larger globe, and HUD rows pulled in from the curved edge.
+const ROUND = render.width > 0 && render.width === render.height;
+const LAYOUT = ROUND ? {
+	mapW: 260, mapH: 150, globeCY: 78, globeR: 70,
+	captionY: 192, captionInset: 30,
+	rulerY: 216, solarLabelY: 221, rulerInset: 40, solarLabelInset: 56,
+} : {
+	mapW: 200, mapH: 132, globeCY: 66, globeR: 64,
+	// The bottom row stays clear of the rounded screen corners the appstore's
+	// Time 2 frame draws over screenshots.
+	captionY: 174, captionInset: 9,
+	rulerY: 200, solarLabelY: 205, rulerInset: 16, solarLabelInset: 16,
+};
+const MAP_W = LAYOUT.mapW;
+const MAP_H = LAYOUT.mapH;
 const timeFont = new render.Font("Bitham-Bold", 42);
 const dateFont = new render.Font("Gothic-Bold", 18);
 const smallFont = new render.Font("Gothic-Bold", 14);
@@ -83,8 +97,8 @@ function sunAt(now) {
 const NIGHT_SIN = Math.sin(-0.833 * Math.PI / 180);
 
 const GLOBE_CX = MAP_W / 2;
-const GLOBE_CY = MAP_H / 2;
-const GLOBE_R = 64;
+const GLOBE_CY = LAYOUT.globeCY;
+const GLOBE_R = LAYOUT.globeR;
 const GLOBE_TILT_MAX = 40;
 
 function isNightLonLat(lon, lat, sun) {
@@ -237,6 +251,52 @@ function drawMap(sun, origin) {
 	}
 }
 
+// The catalog fills the void of the 200x132 Time 2 sky. On the round screen
+// each star keeps its bearing from the globe and its relative depth between
+// the globe's rim and the sky's edge, so the field wraps the larger globe.
+const STAR_SKY_R = 126;
+const STAR_SKY_BOTTOM = MAP_H - 4;
+let starX = STAR_X;
+let starY = STAR_Y;
+
+function skyReach(dx, dy) {
+	// Distance along the unit ray (dx, dy) from the globe center to the sky's
+	// edge: the screen circle, or the HUD line below.
+	const ox = GLOBE_CX - MAP_W / 2;
+	const oy = GLOBE_CY - MAP_W / 2;
+	const b = ox * dx + oy * dy;
+	let reach = -b + Math.sqrt(b * b - (ox * ox + oy * oy - STAR_SKY_R * STAR_SKY_R));
+	if (dy > 0)
+		reach = Math.min(reach, (STAR_SKY_BOTTOM - GLOBE_CY) / dy);
+	return reach;
+}
+
+function rectReach(dx, dy) {
+	// The same for the Time 2 catalog: its 200x132 sky around a 64px globe.
+	let reach = Infinity;
+	if (dx)
+		reach = Math.min(reach, ((dx > 0 ? 199 : 0) - 100) / dx);
+	if (dy)
+		reach = Math.min(reach, ((dy > 0 ? 131 : 0) - 66) / dy);
+	return reach;
+}
+
+if (ROUND) {
+	starX = new Uint16Array(STAR_N);
+	starY = new Uint16Array(STAR_N);
+	for (let i = 0; i < STAR_N; i++) {
+		const ex = STAR_X[i] + 0.5 - 100;
+		const ey = STAR_Y[i] + 0.5 - 66;
+		const d = Math.sqrt(ex * ex + ey * ey);
+		const dx = ex / d;
+		const dy = ey / d;
+		const t = Math.min(1, (d - 66) / (rectReach(dx, dy) - 66));
+		const r = GLOBE_R + 4 + t * (skyReach(dx, dy) - GLOBE_R - 6);
+		starX[i] = (GLOBE_CX + dx * r) | 0;
+		starY[i] = (GLOBE_CY + dy * r) | 0;
+	}
+}
+
 function drawYearStars(now) {
 	const n = litStarCount(now);
 	const year = now.getFullYear();
@@ -245,8 +305,8 @@ function drawYearStars(now) {
 		if (i >= n && !season)
 			continue;
 		const color = season ? cyan : white;
-		const x = STAR_X[i];
-		const y = STAR_Y[i];
+		const x = starX[i];
+		const y = starY[i];
 		const shape = STAR_SHAPE[i];
 		if (shape === 0)
 			render.fillRectangle(color, x, y, 1, 1);
@@ -404,12 +464,12 @@ function drawSolarDot(x, y) {
 	render.fillRectangle(black, x - 4, y - 3, 9, 7);
 }
 
-// The bottom row stays clear of the rounded screen corners the appstore's
-// Time 2 frame draws over screenshots.
-const CAPTION_Y = 174;
-const RULER_Y = 200;
-const SOLAR_LABEL_Y = 205;
-const SOLAR_INSET = 16;
+const CAPTION_Y = LAYOUT.captionY;
+const CAPTION_INSET = LAYOUT.captionInset;
+const RULER_Y = LAYOUT.rulerY;
+const SOLAR_LABEL_Y = LAYOUT.solarLabelY;
+const SOLAR_INSET = LAYOUT.rulerInset;
+const SOLAR_LABEL_INSET = LAYOUT.solarLabelInset;
 
 function solarRuler(now, w, phase) {
 	const weather = state.weather;
@@ -464,9 +524,9 @@ function drawSolarProgress(ruler, w) {
 	render.fillRectangle(black, right, y - 3, 1, 7);
 	if (x !== null)
 		drawSolarDot(x, y);
-	drawTracked(ruler.startText, smallFont, black, SOLAR_INSET, SOLAR_LABEL_Y);
+	drawTracked(ruler.startText, smallFont, black, SOLAR_LABEL_INSET, SOLAR_LABEL_Y);
 	drawTracked(ruler.endText, smallFont, black,
-		w - SOLAR_INSET - trackedWidth(ruler.endText, smallFont), SOLAR_LABEL_Y);
+		w - SOLAR_LABEL_INSET - trackedWidth(ruler.endText, smallFont), SOLAR_LABEL_Y);
 }
 
 function drawSunMark(x, y) {
@@ -578,9 +638,9 @@ function drawScreen(event) {
 		render.drawText(period, smallFont, hudMuted, timeX + timeW + 5, hudY + 26);
 
 	if (full) {
-		drawTracked(dateStr, dateFont, black, 9, CAPTION_Y);
-		drawMoonPhase(moon, 9 + trackedWidth(dateStr, dateFont) + 8, CAPTION_Y + 3, black);
-		const weatherX = w - 9 - trackedWidth(weatherStr, dateFont);
+		drawTracked(dateStr, dateFont, black, CAPTION_INSET, CAPTION_Y);
+		drawMoonPhase(moon, CAPTION_INSET + trackedWidth(dateStr, dateFont) + 8, CAPTION_Y + 3, black);
+		const weatherX = w - CAPTION_INSET - trackedWidth(weatherStr, dateFont);
 		drawTracked(weatherStr, dateFont, ink, weatherX, CAPTION_Y);
 		drawWeatherIcon(mood, weatherX - 22, CAPTION_Y + 3, ink);
 		drawSolarProgress(ruler, w);

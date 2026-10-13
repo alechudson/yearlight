@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../src/embeddedjs/main.js'), 'utf8');
 const solar = source.slice(source.indexOf('function sunAt('), source.indexOf('function pad2('));
-const ctx = vm.createContext({Math, Date, MAP_W:200, MAP_H:132});
+const ctx = vm.createContext({Math, Date, MAP_W:200, MAP_H:132, LAYOUT:{globeCY:66, globeR:64}});
 vm.runInContext(solar, ctx);
 vm.runInContext(`
 function isNightXY(x, sinY, cosY, sun) {

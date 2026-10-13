@@ -9,7 +9,7 @@ int main(void) {
   ModdableCreationRecord cr = {
     .recordSize = sizeof(cr),
     .stack = 6144,
-    .slot = 24576,
+    .slot = 26624, // 24576 had no headroom: the round layout's few bindings overflowed it.
     .chunk = 24576, // All three pools must be explicit; reserve native RAM for maps/Bluetooth.
     .flags = kModdableCreationFlagDebug,
   };
@@ -18,7 +18,7 @@ int main(void) {
   ModdableCreationRecord cr = {
     .recordSize = sizeof(cr),
     .stack = 6144,
-    .slot = 24576,
+    .slot = 26624, // 24576 had no headroom: the round layout's few bindings overflowed it.
     .chunk = 24576, // All three pools must be explicit; reserve native RAM for maps/Bluetooth.
     .flags = 0,
   };

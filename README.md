@@ -1,6 +1,6 @@
 # Yearlight
 
-A Pebble Time 2 watchface: sunlight moving across a location-centered globe,
+A Pebble Time 2 and Pebble Round 2 watchface: sunlight moving across a location-centered globe,
 with a large clock, date, local weather, and a day/night progress ruler.
 
 **[Get it on the Pebble Appstore](https://apps.repebble.com/d58b889bab2c41cdb5a1b267)**
@@ -46,8 +46,16 @@ pebble install --phone <ip>           # install to a paired phone
 
 ## Target platforms
 
-Targets **emery** (Pebble Time 2, 200 × 228). Other platforms are currently
-not supported.
+Targets **emery** (Pebble Time 2, 200 × 228) and **gabbro** (Pebble Round 2,
+260 × 260). The round layout keeps the same sky-over-HUD stack with a larger
+globe, HUD rows inset from the curved edge, and the year stars remapped into the
+round sky. Platforms without Moddable XS (including the original Time Round,
+chalk) are not supported.
+
+```sh
+pebble install --emulator gabbro
+pebble screenshot --no-open --emulator gabbro screenshot_gabbro.png
+```
 
 ## Stability checks
 
