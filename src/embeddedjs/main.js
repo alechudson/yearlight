@@ -8,7 +8,7 @@ const render = new Poco(screen);
 // Round 2 (gabbro, 260x260) stacks the same sky-over-HUD layout inside the
 // circle: a larger globe, and HUD rows pulled in from the curved edge.
 const ROUND = render.width > 0 && render.width === render.height;
-const LAYOUT = ROUND ? {
+let LAYOUT = ROUND ? {
 	mapW: 260, mapH: 150, globeCY: 78, globeR: 70,
 	captionY: 192, captionInset: 30,
 	rulerY: 216, solarLabelY: 221, rulerInset: 40, solarLabelInset: 56,
@@ -21,6 +21,18 @@ const LAYOUT = ROUND ? {
 };
 const MAP_W = LAYOUT.mapW;
 const MAP_H = LAYOUT.mapH;
+const GLOBE_CX = MAP_W / 2;
+const GLOBE_CY = LAYOUT.globeCY;
+const GLOBE_R = LAYOUT.globeR;
+const CAPTION_Y = LAYOUT.captionY;
+const CAPTION_INSET = LAYOUT.captionInset;
+const RULER_Y = LAYOUT.rulerY;
+const SOLAR_LABEL_Y = LAYOUT.solarLabelY;
+const SOLAR_INSET = LAYOUT.rulerInset;
+const SOLAR_LABEL_INSET = LAYOUT.solarLabelInset;
+// Only startup reads the table; release it like the star and mask hex.
+LAYOUT = null;
+
 const timeFont = new render.Font("Bitham-Bold", 42);
 const dateFont = new render.Font("Gothic-Bold", 18);
 const smallFont = new render.Font("Gothic-Bold", 14);
@@ -96,9 +108,6 @@ function sunAt(now) {
 // sin(-0.833°): NOAA apparent sunrise (refraction + solar radius). Same cost as < 0.
 const NIGHT_SIN = Math.sin(-0.833 * Math.PI / 180);
 
-const GLOBE_CX = MAP_W / 2;
-const GLOBE_CY = LAYOUT.globeCY;
-const GLOBE_R = LAYOUT.globeR;
 const GLOBE_TILT_MAX = 40;
 
 function isNightLonLat(lon, lat, sun) {
@@ -176,17 +185,24 @@ const TERMINATOR_MS = 30 * 60 * 1000;
 const globeDrawn = { lon: 9999, lat: 9999, step: -1, stars: -1 };
 const GLOBE_COLORS = [dayOcean, nightOcean, dayLand, nightLand];
 
+// Globe samples sit on even pixels and read the pixel center at +1; these bound
+// the ones inside the disc, so the sky around the globe costs no work.
+const GLOBE_X0 = Math.max(0, (GLOBE_CX - GLOBE_R) & ~1);
+const GLOBE_X1 = Math.min(MAP_W - 2, (GLOBE_CX + GLOBE_R - 1) & ~1) + 2;
+const GLOBE_Y0 = Math.max(0, (GLOBE_CY - GLOBE_R) & ~1);
+const GLOBE_Y1 = Math.min(MAP_H - 2, (GLOBE_CY + GLOBE_R - 1) & ~1) + 2;
+
 // One land bit per 2x2 globe sample. Land depends only on the view origin, so the
 // asin/atan2 inverse projection runs on relocation, not on every terminator step.
-const SAMPLE_W = MAP_W >> 1;
-const landBits = new Uint8Array((SAMPLE_W * (MAP_H >> 1) + 7) >> 3);
+const SAMPLE_W = (GLOBE_X1 - GLOBE_X0) >> 1;
+const landBits = new Uint8Array((SAMPLE_W * ((GLOBE_Y1 - GLOBE_Y0) >> 1) + 7) >> 3);
 const landFor = { lon: 9999, lat: 9999 };
 
 function cacheLand(origin, lon0, sinLat0, cosLat0) {
 	landBits.fill(0);
-	for (let y = 0; y < MAP_H; y += 2) {
+	for (let y = GLOBE_Y0; y < GLOBE_Y1; y += 2) {
 		const yn = (GLOBE_CY - (y + 1)) / GLOBE_R;
-		for (let x = 0; x < MAP_W; x += 2) {
+		for (let x = GLOBE_X0; x < GLOBE_X1; x += 2) {
 			const xn = (x + 1 - GLOBE_CX) / GLOBE_R;
 			const rr = xn * xn + yn * yn;
 			if (rr > 1)
@@ -196,7 +212,7 @@ function cacheLand(origin, lon0, sinLat0, cosLat0) {
 			let lon = (lon0 + Math.atan2(xn, z * cosLat0 - yn * sinLat0)) * 180 / Math.PI;
 			lon = ((lon + 180) % 360 + 360) % 360 - 180;
 			if (isLand(lon, lat)) {
-				const i = (y >> 1) * SAMPLE_W + (x >> 1);
+				const i = ((y - GLOBE_Y0) >> 1) * SAMPLE_W + ((x - GLOBE_X0) >> 1);
 				landBits[i >> 3] |= 1 << (i & 7);
 			}
 		}
@@ -224,18 +240,18 @@ function drawMap(sun, origin) {
 	const vy = sunZ * cosLat0 - a * sinLat0;
 	const vz = a * cosLat0 + sunZ * sinLat0;
 	render.fillRectangle(black, 0, 0, MAP_W, MAP_H);
-	for (let y = 0; y < MAP_H; y += 2) {
+	for (let y = GLOBE_Y0; y < GLOBE_Y1; y += 2) {
 		let runX = 0;
 		let runColor = -1;
 		const yn = (GLOBE_CY - (y + 1)) / GLOBE_R;
-		const row = (y >> 1) * SAMPLE_W;
-		for (let x = 0; x <= MAP_W; x += 2) {
+		const row = ((y - GLOBE_Y0) >> 1) * SAMPLE_W;
+		for (let x = GLOBE_X0; x <= GLOBE_X1; x += 2) {
 			let color = -1;
-			if (x < MAP_W) {
+			if (x < GLOBE_X1) {
 				const xn = (x + 1 - GLOBE_CX) / GLOBE_R;
 				const rr = xn * xn + yn * yn;
 				if (rr <= 1) {
-					const i = row + (x >> 1);
+					const i = row + ((x - GLOBE_X0) >> 1);
 					const land = (landBits[i >> 3] >> (i & 7)) & 1;
 					const night = vx * xn + vy * yn + vz * Math.sqrt(1 - rr) < NIGHT_SIN;
 					color = (land ? 2 : 0) + (night ? 1 : 0);
@@ -253,47 +269,32 @@ function drawMap(sun, origin) {
 
 // The catalog fills the void of the 200x132 Time 2 sky. On the round screen
 // each star keeps its bearing from the globe and its relative depth between
-// the globe's rim and the sky's edge, so the field wraps the larger globe.
-const STAR_SKY_R = 126;
-const STAR_SKY_BOTTOM = MAP_H - 4;
-let starX = STAR_X;
-let starY = STAR_Y;
-
-function skyReach(dx, dy) {
-	// Distance along the unit ray (dx, dy) from the globe center to the sky's
-	// edge: the screen circle, or the HUD line below.
-	const ox = GLOBE_CX - MAP_W / 2;
-	const oy = GLOBE_CY - MAP_W / 2;
-	const b = ox * dx + oy * dy;
-	let reach = -b + Math.sqrt(b * b - (ox * ox + oy * oy - STAR_SKY_R * STAR_SKY_R));
-	if (dy > 0)
-		reach = Math.min(reach, (STAR_SKY_BOTTOM - GLOBE_CY) / dy);
-	return reach;
-}
-
-function rectReach(dx, dy) {
-	// The same for the Time 2 catalog: its 200x132 sky around a 64px globe.
-	let reach = Infinity;
-	if (dx)
-		reach = Math.min(reach, ((dx > 0 ? 199 : 0) - 100) / dx);
-	if (dy)
-		reach = Math.min(reach, ((dy > 0 ? 131 : 0) - 66) / dy);
-	return reach;
-}
-
+// the globe's rim and the sky's edge (the screen circle, inset 4px, or the HUD
+// line), so the field wraps the larger globe. Rewritten in place: every round
+// sky coordinate still fits a byte.
 if (ROUND) {
-	starX = new Uint16Array(STAR_N);
-	starY = new Uint16Array(STAR_N);
+	const skyR = 126;
+	const skyBottom = MAP_H - 4;
+	const oy = GLOBE_CY - MAP_W / 2;
 	for (let i = 0; i < STAR_N; i++) {
 		const ex = STAR_X[i] + 0.5 - 100;
 		const ey = STAR_Y[i] + 0.5 - 66;
 		const d = Math.sqrt(ex * ex + ey * ey);
 		const dx = ex / d;
 		const dy = ey / d;
-		const t = Math.min(1, (d - 66) / (rectReach(dx, dy) - 66));
-		const r = GLOBE_R + 4 + t * (skyReach(dx, dy) - GLOBE_R - 6);
-		starX[i] = (GLOBE_CX + dx * r) | 0;
-		starY[i] = (GLOBE_CY + dy * r) | 0;
+		let rect = Infinity;
+		if (dx)
+			rect = Math.min(rect, ((dx > 0 ? 199 : 0) - 100) / dx);
+		if (dy)
+			rect = Math.min(rect, ((dy > 0 ? 131 : 0) - 66) / dy);
+		const b = oy * dy;
+		let sky = -b + Math.sqrt(b * b - (oy * oy - skyR * skyR));
+		if (dy > 0)
+			sky = Math.min(sky, (skyBottom - GLOBE_CY) / dy);
+		const t = Math.min(1, (d - 66) / (rect - 66));
+		const r = GLOBE_R + 4 + t * (sky - GLOBE_R - 6);
+		STAR_X[i] = (GLOBE_CX + dx * r) | 0;
+		STAR_Y[i] = (GLOBE_CY + dy * r) | 0;
 	}
 }
 
@@ -305,8 +306,8 @@ function drawYearStars(now) {
 		if (i >= n && !season)
 			continue;
 		const color = season ? cyan : white;
-		const x = starX[i];
-		const y = starY[i];
+		const x = STAR_X[i];
+		const y = STAR_Y[i];
 		const shape = STAR_SHAPE[i];
 		if (shape === 0)
 			render.fillRectangle(color, x, y, 1, 1);
@@ -463,13 +464,6 @@ function drawSolarDot(x, y) {
 	render.fillRectangle(black, x - 3, y - 4, 7, 9);
 	render.fillRectangle(black, x - 4, y - 3, 9, 7);
 }
-
-const CAPTION_Y = LAYOUT.captionY;
-const CAPTION_INSET = LAYOUT.captionInset;
-const RULER_Y = LAYOUT.rulerY;
-const SOLAR_LABEL_Y = LAYOUT.solarLabelY;
-const SOLAR_INSET = LAYOUT.rulerInset;
-const SOLAR_LABEL_INSET = LAYOUT.solarLabelInset;
 
 function solarRuler(now, w, phase) {
 	const weather = state.weather;

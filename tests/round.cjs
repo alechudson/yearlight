@@ -55,7 +55,7 @@ test('round screens get the round layout', () => {
 
 test('every year star lands in the round sky, off the globe', () => {
 	const h = boot();
-	const stars = h.eval('Array.from(starX).map((x, i) => [x, starY[i]])');
+	const stars = h.eval('Array.from(STAR_X).map((x, i) => [x, STAR_Y[i]])');
 	const [cx, cy, r, sky] = h.eval('[GLOBE_CX, GLOBE_CY, GLOBE_R, MAP_H]');
 	assert.equal(stars.length, 365);
 	for (const [x, y] of stars) {

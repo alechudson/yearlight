@@ -9,8 +9,8 @@ int main(void) {
   ModdableCreationRecord cr = {
     .recordSize = sizeof(cr),
     .stack = 6144,
-    .slot = 26624, // 24576 had no headroom: the round layout's few bindings overflowed it.
-    .chunk = 24576, // All three pools must be explicit; reserve native RAM for maps/Bluetooth.
+    .slot = 28672, // Launch peaks between 25600 and 26624 (emulator, 1.0.9).
+    .chunk = 22528, // Runs at 18432; all three pools must be explicit. Same 50 KB total as 26624/24576.
     .flags = kModdableCreationFlagDebug,
   };
   moddable_createMachine(&cr);
@@ -18,8 +18,8 @@ int main(void) {
   ModdableCreationRecord cr = {
     .recordSize = sizeof(cr),
     .stack = 6144,
-    .slot = 26624, // 24576 had no headroom: the round layout's few bindings overflowed it.
-    .chunk = 24576, // All three pools must be explicit; reserve native RAM for maps/Bluetooth.
+    .slot = 28672, // Launch peaks between 25600 and 26624 (emulator, 1.0.9).
+    .chunk = 22528, // Runs at 18432; all three pools must be explicit. Same 50 KB total as 26624/24576.
     .flags = 0,
   };
   moddable_createMachine(&cr);
