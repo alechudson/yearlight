@@ -82,3 +82,14 @@ test('HUD text stays inside the circle', () => {
 		assert.ok(inCircle(t.x, bottom) && inCircle(t.x + t.width, bottom), `${t.text} clipped`);
 	}
 });
+
+test('a quick view lifts the clock above the obstruction', () => {
+	const h = boot();
+	h.eval('render.unobstructed = {width: 260, height: 157}');
+	h.eval('globeDrawn.step = -1; invalidateHud(); drawScreen()');
+	const clock = h.calls.find(c => c.kind === 'text' && /:/.test(c.text) && c.font.size === 42);
+	assert.ok(clock.y + 42 <= 157, `clock at ${clock.y}`);
+	h.eval('render.unobstructed = {width: 260, height: 260}');
+	h.eval('globeDrawn.step = -1; invalidateHud(); drawScreen()');
+	assert.equal(h.calls.find(c => c.kind === 'text' && c.font.size === 42).y, h.eval('MAP_H'));
+});

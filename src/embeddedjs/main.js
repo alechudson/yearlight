@@ -576,7 +576,9 @@ function drawScreen(event) {
 
 	const w = render.unobstructed.width;
 	const h = render.unobstructed.height;
-	const hudY = MAP_H;
+	// A timeline quick view on the round screen covers where the clock sits; lift
+	// the HUD over the bottom of the globe so the clock stays visible above it.
+	const hudY = Math.min(MAP_H, h - CLOCK_H);
 	const origin = viewOrigin();
 	const step = (now.getTime() / TERMINATOR_MS) | 0;
 	const stars = litStarCount(now);
