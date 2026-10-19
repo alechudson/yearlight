@@ -17,6 +17,7 @@ function boot() {
 	class Poco {
 		constructor() {
 			this.Font = class { constructor(name, size) { this.name = name; this.size = size; } };
+			this.height = 228;
 			this.unobstructed = {width: 200, height: 228};
 		}
 		makeColor(r, g, b) { return (r << 16) | (g << 8) | b; }
@@ -141,4 +142,16 @@ test('the whole HUD redraws when the sun marker moves or the caption changes', (
 	h.deliver(data);
 	assert.deepEqual(h.begins[0], [0, 132, 200, 96]);
 	assert.ok(h.texts().includes('60°'));
+});
+
+test('a quick view still clears the caption and ruler rows it covers', () => {
+	const h = boot();
+	h.deliver(forecast());
+	h.eval('render.unobstructed = {width: 200, height: 177}');
+	h.events.resize({});
+	const covered = c => c.kind === 'rect' && c.color === 0xffffff && c.y <= 174 && c.y + c.height >= 228;
+	assert.ok(h.calls.some(covered), 'globe redraw clears to the screen bottom');
+	h.tick('2026-09-09T18:15:00Z');
+	assert.equal(h.begins[0][1] + h.begins[0][3], 228, 'HUD redraw clips to the screen bottom');
+	assert.ok(h.calls.some(covered), 'HUD redraw clears to the screen bottom');
 });

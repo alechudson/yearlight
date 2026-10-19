@@ -573,6 +573,9 @@ function drawScreen(event) {
 	// A timeline quick view on the round screen covers where the clock sits; lift
 	// the HUD over the bottom of the globe so the clock stays visible above it.
 	const hudY = Math.min(MAP_H, h - CLOCK_H);
+	// The caption and ruler keep their rows under a quick view, so clear down to
+	// the screen's bottom, not the obstruction's top, or each redraw stacks on the last.
+	const hudH = render.height - hudY;
 	const origin = viewOrigin();
 	const step = (now.getTime() / TERMINATOR_MS) | 0;
 	const stars = litStarCount(now);
@@ -617,13 +620,13 @@ function drawScreen(event) {
 		globeDrawn.step = step;
 		globeDrawn.stars = stars;
 	} else if (caption !== hudDrawn.caption || rulerKey !== hudDrawn.ruler)
-		render.begin(0, hudY, w, h - hudY);
+		render.begin(0, hudY, w, hudH);
 	else {
 		render.begin(0, hudY, w, CLOCK_H);
 		full = false;
 	}
 
-	render.fillRectangle(white, 0, hudY, w, full ? h - hudY : CLOCK_H);
+	render.fillRectangle(white, 0, hudY, w, full ? hudH : CLOCK_H);
 
 	const timeStr = formatTime(now);
 	const period = watch.hour12 ? (now.getHours() < 12 ? "AM" : "PM") : "";

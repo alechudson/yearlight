@@ -15,6 +15,7 @@ function boot() {
   class Poco {
     constructor() {
       this.Font = class { constructor(name, size) { this.name = name; this.size = size; } };
+      this.height = 228;
       this.unobstructed = {width:200, height:228};
     }
     makeColor(r, g, b) { return (r << 16) | (g << 8) | b; }
