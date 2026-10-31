@@ -41,11 +41,22 @@ const black = render.makeColor(0, 0, 0);
 const white = render.makeColor(255, 255, 255);
 const yellow = render.makeColor(255, 255, 0);
 const cyan = render.makeColor(0, 255, 255);
-const hudMuted = render.makeColor(85, 85, 85);
+const darkGray = render.makeColor(85, 85, 85);
+const lightGray = render.makeColor(170, 170, 170);
+const cobalt = render.makeColor(0, 85, 170);
 const dayOcean = render.makeColor(0, 0, 255);
 const nightOcean = render.makeColor(0, 0, 85);
 const dayLand = render.makeColor(0, 255, 0);
 const nightLand = render.makeColor(0, 85, 0);
+
+// Theme palettes, indexed by the phone's THEME value: the classic black sky
+// over a white HUD, all black, and all white. The globe keeps its colors.
+const THEMES = [
+	{ sky: black, paper: white, ink: black, muted: darkGray, star: white, season: cyan },
+	{ sky: black, paper: black, ink: white, muted: lightGray, star: white, season: cyan },
+	{ sky: white, paper: white, ink: black, muted: darkGray, star: black, season: cobalt },
+];
+let theme = THEMES[0];
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -67,6 +78,7 @@ const phone = new Message({
 	output: 256,
 	onReadable() {
 		const msg = this.read();
+		applyTheme(msg.get("THEME"));
 		const payload = msg.get("PAYLOAD");
 		if (payload)
 			applyPayload(payload);
@@ -239,7 +251,7 @@ function drawMap(sun, origin) {
 	const vx = sunY * cosLon0 - sunX * sinLon0;
 	const vy = sunZ * cosLat0 - a * sinLat0;
 	const vz = a * cosLat0 + sunZ * sinLat0;
-	render.fillRectangle(black, 0, 0, MAP_W, MAP_H);
+	render.fillRectangle(theme.sky, 0, 0, MAP_W, MAP_H);
 	for (let y = GLOBE_Y0; y < GLOBE_Y1; y += 2) {
 		let runX = 0;
 		let runColor = -1;
@@ -305,7 +317,7 @@ function drawYearStars(now) {
 		const season = isSeasonStar(i, year);
 		if (i >= n && !season)
 			continue;
-		const color = season ? cyan : white;
+		const color = season ? theme.season : theme.star;
 		const x = STAR_X[i];
 		const y = STAR_Y[i];
 		const shape = STAR_SHAPE[i];
@@ -460,9 +472,9 @@ function drawMoonPhase(index, x, y, color) {
 }
 
 function drawSolarDot(x, y) {
-	render.fillRectangle(white, x - 5, y - 5, 11, 11);
-	render.fillRectangle(black, x - 3, y - 4, 7, 9);
-	render.fillRectangle(black, x - 4, y - 3, 9, 7);
+	render.fillRectangle(theme.paper, x - 5, y - 5, 11, 11);
+	render.fillRectangle(theme.ink, x - 3, y - 4, 7, 9);
+	render.fillRectangle(theme.ink, x - 4, y - 3, 9, 7);
 }
 
 function solarRuler(now, w, phase) {
@@ -513,13 +525,13 @@ function drawTracked(text, font, color, x, y) {
 function drawSolarProgress(ruler, w) {
 	const { left, right, x } = ruler;
 	const y = RULER_Y;
-	render.fillRectangle(black, left, y, right - left + 1, 1);
-	render.fillRectangle(black, left, y - 3, 1, 7);
-	render.fillRectangle(black, right, y - 3, 1, 7);
+	render.fillRectangle(theme.ink, left, y, right - left + 1, 1);
+	render.fillRectangle(theme.ink, left, y - 3, 1, 7);
+	render.fillRectangle(theme.ink, right, y - 3, 1, 7);
 	if (x !== null)
 		drawSolarDot(x, y);
-	drawTracked(ruler.startText, smallFont, black, SOLAR_LABEL_INSET, SOLAR_LABEL_Y);
-	drawTracked(ruler.endText, smallFont, black,
+	drawTracked(ruler.startText, smallFont, theme.ink, SOLAR_LABEL_INSET, SOLAR_LABEL_Y);
+	drawTracked(ruler.endText, smallFont, theme.ink,
 		w - SOLAR_LABEL_INSET - trackedWidth(ruler.endText, smallFont), SOLAR_LABEL_Y);
 }
 
@@ -590,14 +602,14 @@ function drawScreen(event) {
 	const dateStr = (DAYS[now.getDay()] + " " + MONTHS[now.getMonth()] + " " + now.getDate()).toUpperCase();
 	const stale = state.status === "stale";
 	const weatherStr = state.weather ? String(state.weather.temp) + "°" + (stale ? "!" : "") : "--°";
-	const ink = stale || !state.weather ? hudMuted : black;
+	const ink = stale || !state.weather ? theme.muted : theme.ink;
 	const caption = w + "x" + h + " " + dateStr + " " + weatherStr + " " + ink + " " + mood + " " + moon;
 	const rulerKey = ruler.x + " " + ruler.startText + " " + ruler.endText;
 	let full = true;
 
 	if (!canShade) {
 		render.begin();
-		render.fillRectangle(black, 0, 0, MAP_W, MAP_H);
+		render.fillRectangle(theme.sky, 0, 0, MAP_W, MAP_H);
 	} else if (globeDirty) {
 		render.begin();
 		const sun = sunAt(now);
@@ -626,19 +638,19 @@ function drawScreen(event) {
 		full = false;
 	}
 
-	render.fillRectangle(white, 0, hudY, w, full ? hudH : CLOCK_H);
+	render.fillRectangle(theme.paper, 0, hudY, w, full ? hudH : CLOCK_H);
 
 	const timeStr = formatTime(now);
 	const period = watch.hour12 ? (now.getHours() < 12 ? "AM" : "PM") : "";
 	const timeW = render.getTextWidth(timeStr, timeFont);
 	const timeX = ((w - timeW) / 2) | 0;
-	render.drawText(timeStr, timeFont, black, timeX, hudY);
+	render.drawText(timeStr, timeFont, theme.ink, timeX, hudY);
 	if (period)
-		render.drawText(period, smallFont, hudMuted, timeX + timeW + 5, hudY + 26);
+		render.drawText(period, smallFont, theme.muted, timeX + timeW + 5, hudY + 26);
 
 	if (full) {
-		drawTracked(dateStr, dateFont, black, CAPTION_INSET, CAPTION_Y);
-		drawMoonPhase(moon, CAPTION_INSET + trackedWidth(dateStr, dateFont) + 8, CAPTION_Y + 3, black);
+		drawTracked(dateStr, dateFont, theme.ink, CAPTION_INSET, CAPTION_Y);
+		drawMoonPhase(moon, CAPTION_INSET + trackedWidth(dateStr, dateFont) + 8, CAPTION_Y + 3, theme.ink);
 		const weatherX = w - CAPTION_INSET - trackedWidth(weatherStr, dateFont);
 		drawTracked(weatherStr, dateFont, ink, weatherX, CAPTION_Y);
 		drawWeatherIcon(mood, weatherX - 22, CAPTION_Y + 3, ink);
@@ -766,6 +778,33 @@ function restorePayload() {
 		applyPayload(storedPayload);
 }
 
+// The theme is kept on the watch too, so a relaunch paints in it before the
+// phone connects.
+const THEME_KEY = "th";
+
+function applyTheme(index, stored) {
+	const next = THEMES[index];
+	if (!next || next === theme)
+		return;
+	theme = next;
+	globeDrawn.step = -1;
+	invalidateHud();
+	if (stored)
+		return;
+	drawScreen();
+	try {
+		localStorage.setItem(THEME_KEY, String(index));
+	} catch (e) {
+	}
+}
+
+function restoreTheme() {
+	try {
+		applyTheme(Number(localStorage.getItem(THEME_KEY)), true);
+	} catch (e) {
+	}
+}
+
 function requestRefresh() {
 	if (!phoneWritable)
 		return;
@@ -787,6 +826,7 @@ watch.addEventListener("resize", event => {
 	drawScreen(event);
 });
 watch.addEventListener("hourchange", requestRefresh);
+restoreTheme();
 drawScreen();
 setTimeout(restorePayload, 0);
 setTimeout(() => {

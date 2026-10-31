@@ -29,7 +29,8 @@
     ],
     "messageKeys": [
     "PAYLOAD",
-    "CMD"
+    "CMD",
+    "THEME"
     ],
     "resources": {
       "media": []

@@ -390,3 +390,28 @@ test('the settings page opens with the current unit selected', () => {
   assert.doesNotMatch(page, /value="F" checked/);
   assert.match(page, /pebblejs:\/\/close#/);
 });
+
+test('the theme rides along with every payload, classic by default', () => {
+  const h = loadPkjs({store: {wx2: JSON.stringify(CACHED)}, geo: {getCurrentPosition() {}}});
+  h.listeners.ready();
+  assert.equal(h.sent[0].dict.THEME, 0);
+});
+
+test('choosing a theme saves it with the units and resends to the watch', () => {
+  const h = loadPkjs({store: {wx2: JSON.stringify(CACHED)}});
+  h.listeners.webviewclosed({response: encodeURIComponent(JSON.stringify({units: 'C', theme: 'white'}))});
+  assert.deepEqual(JSON.parse(h.store.get('cfg1')), {units: 'C', theme: 'white'});
+  assert.equal(h.sent[0].dict.THEME, 2);
+  h.sent[0].ok();
+  h.listeners.showConfiguration();
+  const page = decodeURIComponent(h.opened[0].slice(h.opened[0].indexOf(',') + 1));
+  assert.match(page, /value="white" checked/);
+  assert.doesNotMatch(page, /value="classic" checked/);
+});
+
+test('a settings save without a theme keeps the saved one', () => {
+  const h = loadPkjs({store: {wx2: JSON.stringify(CACHED), cfg1: JSON.stringify({units: 'F', theme: 'black'})}});
+  h.listeners.webviewclosed({response: encodeURIComponent(JSON.stringify({units: 'C'}))});
+  assert.equal(JSON.parse(h.store.get('cfg1')).theme, 'black');
+  assert.equal(h.sent[0].dict.THEME, 1);
+});

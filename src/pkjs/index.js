@@ -8,12 +8,19 @@ var CACHE_FRESH_MS = 15 * 60 * 1000;
 var MOVE_CHECK_MS = 10 * 60 * 1000;
 var SETTINGS_KEY = "cfg1";
 
+// Watch-side palettes, by index: the original black sky over a white HUD,
+// then all black and all white.
+var THEMES = ["classic", "black", "white"];
+
 function readSettings() {
 	try {
 		var saved = JSON.parse(localStorage.getItem(SETTINGS_KEY));
-		return { units: saved && saved.units === "C" ? "C" : "F" };
+		return {
+			units: saved && saved.units === "C" ? "C" : "F",
+			theme: saved && THEMES.indexOf(saved.theme) >= 0 ? saved.theme : "classic"
+		};
 	} catch (e) {
-		return { units: "F" };
+		return { units: "F", theme: "classic" };
 	}
 }
 
@@ -57,7 +64,9 @@ function sendToWatch(data) {
 	sending = true;
 	sendTries += 1;
 	var outgoing = lastPayload;
-	Pebble.sendAppMessage({ PAYLOAD: outgoing }, function () {
+	// The theme rides along with every payload, so it reaches the watch with the
+	// same retries and needs no message of its own.
+	Pebble.sendAppMessage({ PAYLOAD: outgoing, THEME: THEMES.indexOf(readSettings().theme) }, function () {
 		sending = false;
 		sendTries = 0;
 		if (outgoing !== "E")
@@ -351,9 +360,9 @@ Pebble.addEventListener("appmessage", function (e) {
 });
 
 function settingsPage(settings) {
-	function option(value, label) {
-		return '<label><input type="radio" name="units" value="' + value + '"'
-			+ (settings.units === value ? " checked" : "") + '> ' + label + '</label>';
+	function option(name, value, label) {
+		return '<label><input type="radio" name="' + name + '" value="' + value + '"'
+			+ (settings[name] === value ? " checked" : "") + '> ' + label + '</label>';
 	}
 	var html = '<!DOCTYPE html><html><head><meta charset="utf-8">'
 		+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -362,18 +371,20 @@ function settingsPage(settings) {
 		+ '@media (prefers-color-scheme:dark){:root{--bg:#111;--card:#1d1d1f;--ink:#f2f2f2;--muted:#9a9a9a;--line:#333;--accent:#4d8dff}}'
 		+ '*{box-sizing:border-box}'
 		+ 'body{margin:0;padding:24px 16px;background:var(--bg);color:var(--ink);font:17px -apple-system,system-ui,sans-serif}'
-		+ 'h1{font-size:22px;margin:0 0 20px}'
-		+ '.label{margin:0 4px 8px;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}'
+		+ 'h1{font-size:22px;margin:0}'
+		+ '.label{margin:20px 4px 8px;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}'
 		+ '.card{background:var(--card);border-radius:12px;padding:0 16px}'
 		+ '.card label{display:block;padding:14px 0;font-size:18px}.card label+label{border-top:1px solid var(--line)}'
 		+ 'input{width:20px;height:20px;margin:0 10px 0 0;vertical-align:-3px;accent-color:var(--accent)}'
 		+ 'button{display:block;width:100%;margin-top:24px;padding:14px;border:0;border-radius:12px;background:var(--accent);color:#fff;font:600 18px -apple-system,system-ui,sans-serif}'
 		+ '</style></head><body><h1>Yearlight</h1><div class="label">Temperature</div><div class="card">'
-		+ option("F", "Fahrenheit (°F)") + option("C", "Celsius (°C)")
+		+ option("units", "F", "Fahrenheit (°F)") + option("units", "C", "Celsius (°C)")
+		+ '</div><div class="label">Theme</div><div class="card">'
+		+ option("theme", "classic", "Classic") + option("theme", "black", "All black") + option("theme", "white", "All white")
 		+ '</div><button id="save">Save</button><script>'
+		+ 'function pick(n){return document.querySelector("input[name="+n+"]:checked").value;}'
 		+ 'document.getElementById("save").onclick=function(){'
-		+ 'var units=document.querySelector("input[name=units]:checked").value;'
-		+ 'location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify({units:units}));};'
+		+ 'location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify({units:pick("units"),theme:pick("theme")}));};'
 		+ '</script></body></html>';
 	return "data:text/html;charset=utf-8," + encodeURIComponent(html);
 }
@@ -391,10 +402,13 @@ Pebble.addEventListener("webviewclosed", function (e) {
 	}
 	if (!chosen || (chosen.units !== "C" && chosen.units !== "F"))
 		return;
+	var theme = THEMES.indexOf(chosen.theme) >= 0 ? chosen.theme : readSettings().theme;
 	try {
-		localStorage.setItem(SETTINGS_KEY, JSON.stringify({ units: chosen.units }));
+		localStorage.setItem(SETTINGS_KEY, JSON.stringify({ units: chosen.units, theme: theme }));
 	} catch (err) {}
 	var cache = readCache();
 	if (cache)
 		sendToWatch(cache);
+	else if (lastPayload !== null)
+		sendToWatch(lastPayload);
 });
