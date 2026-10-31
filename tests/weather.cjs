@@ -203,6 +203,9 @@ test('a theme from the phone is applied, stored once, and restored on relaunch',
   send({THEME:9});
   assert.equal(store.writes,1,'unchanged and unknown themes do not rewrite flash');
   assert.equal(h.eval('theme===THEMES[2]'),true);
+  send({THEME:3});
+  assert.equal(h.eval('theme===THEMES[3]'),true);
+  assert.equal(store.get('th'),'3');
   const again=boot(store);
-  assert.equal(again.eval('theme===THEMES[2]'),true);
+  assert.equal(again.eval('theme===THEMES[3]'),true);
 });
