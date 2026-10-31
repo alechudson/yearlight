@@ -8,8 +8,6 @@ var CACHE_FRESH_MS = 15 * 60 * 1000;
 var MOVE_CHECK_MS = 10 * 60 * 1000;
 var SETTINGS_KEY = "cfg1";
 
-// Watch-side palettes, by index: the original black sky over a white HUD,
-// then all black, all white, gray, and black sky over a gray HUD.
 var THEMES = ["classic", "black", "white", "gray", "black-gray"];
 
 function readSettings() {
