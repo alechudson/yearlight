@@ -281,34 +281,102 @@ function drawMap(sun, origin) {
 	}
 }
 
-// The catalog fills the void of the 200x132 Time 2 sky. On the round screen
-// each star keeps its bearing from the globe and its relative depth between
-// the globe's rim and the sky's edge (the screen circle, inset 4px, or the HUD
-// line), so the field wraps the larger globe. Rewritten in place: every round
-// sky coordinate still fits a byte.
+// Bearings from the rectangular catalog clump in the round side lobes and on
+// the rim. Sit the stars on a jittered hex lattice inside the visible circle,
+// then shuffle with a fixed seed so the year fills evenly and nothing jumps.
 if (ROUND) {
-	const skyR = 126;
-	const skyBottom = MAP_H - 4;
-	const oy = GLOBE_CY - MAP_W / 2;
-	for (let i = 0; i < STAR_N; i++) {
-		const ex = STAR_X[i] + 0.5 - 100;
-		const ey = STAR_Y[i] + 0.5 - 66;
-		const d = Math.sqrt(ex * ex + ey * ey);
-		const dx = ex / d;
-		const dy = ey / d;
-		let rect = Infinity;
-		if (dx)
-			rect = Math.min(rect, ((dx > 0 ? 199 : 0) - 100) / dx);
-		if (dy)
-			rect = Math.min(rect, ((dy > 0 ? 131 : 0) - 66) / dy);
-		const b = oy * dy;
-		let sky = -b + Math.sqrt(b * b - (oy * oy - skyR * skyR));
-		if (dy > 0)
-			sky = Math.min(sky, (skyBottom - GLOBE_CY) / dy);
-		const t = Math.min(1, (d - 66) / (rect - 66));
-		const r = GLOBE_R + 4 + t * (sky - GLOBE_R - 6);
-		STAR_X[i] = (GLOBE_CX + dx * r) | 0;
-		STAR_Y[i] = (GLOBE_CY + dy * r) | 0;
+	const screen = MAP_W >> 1;
+	const sky2 = (screen - 2) * (screen - 2);
+	const clear2 = (GLOBE_R + 4) * (GLOBE_R + 4);
+	function open(x, y) {
+		if (x < 1 || x > 255 || y < 1 || y + 1 >= MAP_H)
+			return false;
+		for (let k = 0; k < 4; k++) {
+			const px = x + (k & 1 ? 1 : -1);
+			const py = y + (k & 2 ? 1 : -1);
+			const dx = px + 0.5 - screen;
+			const dy = py + 0.5 - screen;
+			if (dx * dx + dy * dy > sky2)
+				return false;
+		}
+		const gx = x + 0.5 - GLOBE_CX;
+		const gy = y + 0.5 - GLOBE_CY;
+		return gx * gx + gy * gy > clear2;
+	}
+	function mix(n) {
+		n = (n ^ (n << 13)) >>> 0;
+		n = (n ^ (n >>> 17)) >>> 0;
+		n = (n ^ (n << 5)) >>> 0;
+		return n >>> 0;
+	}
+	function count(step) {
+		const rowH = step * Math.sqrt(3) / 2;
+		let n = 0;
+		for (let row = 0, y = rowH * 0.5; y < MAP_H - 1; row++, y += rowH) {
+			const y0 = y | 0;
+			for (let x = (row & 1) ? step * 0.5 : 1; x < 256; x += step)
+				if (open(x | 0, y0))
+					n++;
+		}
+		return n;
+	}
+	let step = 6.5;
+	let cells = count(step);
+	while (cells < STAR_N && step > 4) {
+		step -= 0.25;
+		cells = count(step);
+	}
+	const rowH = step * Math.sqrt(3) / 2;
+	const gap2 = 16;
+	let seen = 0;
+	let placed = 0;
+	let next = 0;
+	for (let row = 0, y = rowH * 0.5; y < MAP_H - 1; row++, y += rowH) {
+		const y0 = y | 0;
+		for (let x = (row & 1) ? step * 0.5 : 1; x < 256; x += step) {
+			const x0 = x | 0;
+			if (!open(x0, y0))
+				continue;
+			if (seen === next && placed < STAR_N) {
+				const h = mix(x0 + y0 * 257);
+				let px = x0;
+				let py = y0;
+				if (h & 4)
+					px += (h & 1) ? 1 : -1;
+				else
+					py += (h & 2) ? 1 : -1;
+				if (!open(px, py)) {
+					px = x0;
+					py = y0;
+				} else {
+					for (let j = Math.max(0, placed - 48); j < placed; j++) {
+						const dx = px - STAR_X[j];
+						const dy = py - STAR_Y[j];
+						if (dx * dx + dy * dy < gap2) {
+							px = x0;
+							py = y0;
+							break;
+						}
+					}
+				}
+				STAR_X[placed] = px;
+				STAR_Y[placed] = py;
+				placed++;
+				next = (placed * cells / STAR_N) | 0;
+			}
+			seen++;
+		}
+	}
+	let seed = 0x9e3779b9;
+	for (let i = STAR_N - 1; i > 0; i--) {
+		seed = (seed * 1664525 + 1013904223) >>> 0;
+		const j = seed % (i + 1);
+		const tx = STAR_X[i];
+		STAR_X[i] = STAR_X[j];
+		STAR_X[j] = tx;
+		const ty = STAR_Y[i];
+		STAR_Y[i] = STAR_Y[j];
+		STAR_Y[j] = ty;
 	}
 }
 
