@@ -188,3 +188,19 @@ test('a phone payload that beats the restore wins',async()=>{
   assert.equal(h.eval('state.lat'),30);
 });
 module.exports={boot,valid,wx};
+
+test('a theme from the phone is applied, stored once, and restored on relaunch',async()=>{
+  const store=new Map();
+  const h=boot(store);
+  const send=dict=>{const m=h.messages[0]; m._msg={get(k){return dict[k];}}; m.options.onReadable.call(m);};
+  assert.equal(h.eval('theme===THEMES[0]'),true);
+  send({THEME:2});
+  assert.equal(h.eval('theme===THEMES[2]'),true);
+  assert.equal(store.get('th'),'2');
+  send({THEME:2});
+  send({THEME:9});
+  assert.equal(store.writes,1,'unchanged and unknown themes do not rewrite flash');
+  assert.equal(h.eval('theme===THEMES[2]'),true);
+  const again=boot(store);
+  assert.equal(again.eval('theme===THEMES[2]'),true);
+});
