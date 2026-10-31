@@ -66,6 +66,65 @@ test('every year star lands in the round sky, off the globe', () => {
 	}
 });
 
+function openSky(x, y, cx, cy, r, sky) {
+	if (y + 1 >= sky)
+		return false;
+	const screen = 130;
+	const limit = (screen - 2) * (screen - 2);
+	for (let k = 0; k < 4; k++) {
+		const px = x + (k & 1 ? 1 : -1);
+		const py = y + (k & 2 ? 1 : -1);
+		const dx = px + 0.5 - screen;
+		const dy = py + 0.5 - screen;
+		if (dx * dx + dy * dy > limit)
+			return false;
+	}
+	const gx = x + 0.5 - cx;
+	const gy = y + 0.5 - cy;
+	return gx * gx + gy * gy > (r + 4) * (r + 4);
+}
+
+test('round stars spread across the visible sky and stay put', () => {
+	const h = boot();
+	const again = boot();
+	const stars = h.eval('Array.from(STAR_X).map((x, i) => [x, STAR_Y[i]])');
+	const repeat = again.eval('Array.from(STAR_X).map((x, i) => [x, STAR_Y[i]])');
+	let mismatch = -1;
+	for (let i = 0; i < stars.length; i++) {
+		if (stars[i][0] !== repeat[i][0] || stars[i][1] !== repeat[i][1]) {
+			mismatch = i;
+			break;
+		}
+	}
+	assert.equal(mismatch, -1, mismatch < 0 ? '' : `${mismatch} ${stars[mismatch]} vs ${repeat[mismatch]}`);
+	let nearest = Infinity;
+	for (let i = 0; i < stars.length; i++) {
+		for (let j = i + 1; j < stars.length; j++) {
+			const d = Math.hypot(stars[i][0] - stars[j][0], stars[i][1] - stars[j][1]);
+			if (d < nearest)
+				nearest = d;
+		}
+	}
+	assert.ok(nearest >= 4, `nearest stars are ${nearest}px apart`);
+	const [cx, cy, r, sky] = h.eval('[GLOBE_CX, GLOBE_CY, GLOBE_R, MAP_H]');
+	let farthest = 0;
+	for (let y = 3; y < sky - 2; y += 8) {
+		for (let x = 3; x < 256; x += 8) {
+			if (!openSky(x, y, cx, cy, r, sky))
+				continue;
+			let near = Infinity;
+			for (let i = 0; i < stars.length; i++) {
+				const d = Math.hypot(x - stars[i][0], y - stars[i][1]);
+				if (d < near)
+					near = d;
+			}
+			if (near > farthest)
+				farthest = near;
+		}
+	}
+	assert.ok(farthest <= 12, `a patch of sky is ${farthest}px from the nearest star`);
+});
+
 test('HUD text stays inside the circle', () => {
 	const h = boot();
 	const sec = Date.UTC(2026, 8, 9) / 1000;
