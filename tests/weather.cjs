@@ -192,6 +192,8 @@ module.exports={boot,valid,wx};
 test('a theme from the phone is applied, stored once, and restored on relaunch',async()=>{
   const store=new Map();
   const h=boot(store);
+  // The SDK names a key only when it is listed, in package.json order, on the Message.
+  assert.equal(h.messages[0].options.keys.join(','), 'PAYLOAD,CMD,THEME');
   const send=dict=>{const m=h.messages[0]; m._msg={get(k){return dict[k];}}; m.options.onReadable.call(m);};
   assert.equal(h.eval('theme===THEMES[0]'),true);
   send({THEME:2});
