@@ -420,6 +420,18 @@ test('choosing Gray is on the settings page and sends theme 3', () => {
   assert.equal(h.sent[0].dict.THEME, 3);
 });
 
+test('choosing Black & gray is on the settings page and sends theme 4', () => {
+  const h = loadPkjs({store: {wx2: JSON.stringify(CACHED)}});
+  assert.equal(vm.runInContext('THEMES.join(",")', h.context), 'classic,black,white,gray,black-gray');
+  h.listeners.showConfiguration();
+  const page = decodeURIComponent(h.opened[0].slice(h.opened[0].indexOf(',') + 1));
+  assert.match(page, /value="black-gray"/);
+  assert.match(page, /> Black & gray</);
+  h.listeners.webviewclosed({response: encodeURIComponent(JSON.stringify({units: 'F', theme: 'black-gray'}))});
+  assert.deepEqual(JSON.parse(h.store.get('cfg1')), {units: 'F', theme: 'black-gray'});
+  assert.equal(h.sent[0].dict.THEME, 4);
+});
+
 test('a settings save without a theme keeps the saved one', () => {
   const h = loadPkjs({store: {wx2: JSON.stringify(CACHED), cfg1: JSON.stringify({units: 'F', theme: 'black'})}});
   h.listeners.webviewclosed({response: encodeURIComponent(JSON.stringify({units: 'C'}))});

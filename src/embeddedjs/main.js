@@ -50,12 +50,14 @@ const dayLand = render.makeColor(0, 255, 0);
 const nightLand = render.makeColor(0, 85, 0);
 
 // Theme palettes, indexed by the phone's THEME value: the classic black sky
-// over a white HUD, all black, all white, and gray. The globe keeps its colors.
+// over a white HUD, all black, all white, gray, and black sky over a gray HUD.
+// The globe keeps its colors.
 const THEMES = [
 	{ sky: black, paper: white, ink: black, muted: darkGray, star: white, season: cyan },
 	{ sky: black, paper: black, ink: white, muted: lightGray, star: white, season: cyan },
 	{ sky: white, paper: white, ink: black, muted: darkGray, star: black, season: deepBlue },
 	{ sky: darkGray, paper: darkGray, ink: white, muted: white, star: white, season: cyan },
+	{ sky: black, paper: darkGray, ink: white, muted: white, star: white, season: cyan },
 ];
 let theme = THEMES[0];
 

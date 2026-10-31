@@ -9,8 +9,8 @@ var MOVE_CHECK_MS = 10 * 60 * 1000;
 var SETTINGS_KEY = "cfg1";
 
 // Watch-side palettes, by index: the original black sky over a white HUD,
-// then all black and all white.
-var THEMES = ["classic", "black", "white", "gray"];
+// then all black, all white, gray, and black sky over a gray HUD.
+var THEMES = ["classic", "black", "white", "gray", "black-gray"];
 
 function readSettings() {
 	try {
@@ -380,7 +380,7 @@ function settingsPage(settings) {
 		+ '</style></head><body><h1>Yearlight</h1><div class="label">Temperature</div><div class="card">'
 		+ option("units", "F", "Fahrenheit (°F)") + option("units", "C", "Celsius (°C)")
 		+ '</div><div class="label">Theme</div><div class="card">'
-		+ option("theme", "classic", "Classic") + option("theme", "black", "All black") + option("theme", "white", "All white") + option("theme", "gray", "Gray")
+		+ option("theme", "classic", "Classic") + option("theme", "black", "All black") + option("theme", "white", "All white") + option("theme", "gray", "Gray") + option("theme", "black-gray", "Black & gray")
 		+ '</div><button id="save">Save</button><script>'
 		+ 'function pick(n){return document.querySelector("input[name="+n+"]:checked").value;}'
 		+ 'document.getElementById("save").onclick=function(){'

@@ -274,6 +274,26 @@ test('moon phase sits beside the date', () => {
 
 
 
+test('black and gray keeps the classic sky, stars, sun, and pin on a dark gray HUD', () => {
+  const h = boot();
+  h.deliver(forecast());
+  h.eval('applyTheme(4)');
+  const darkGray = (85 << 16) | (85 << 8) | 85;
+  assert.equal(h.eval('theme === THEMES[4]'), true);
+  assert.equal(h.eval('THEMES[4].sky === THEMES[0].sky && THEMES[4].star === THEMES[0].star && THEMES[4].season === THEMES[0].season'), true);
+  assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0 && c.x === 0 && c.y === 0 && c.width === 200 && c.height === 132), 'sky stays black');
+  assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === darkGray && c.y >= 132 && c.width === 200), 'HUD is dark gray');
+  assert.ok(h.calls.some(c => c.kind === 'text' && c.color === 0xffffff && c.y >= 132), 'HUD text is white');
+  assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0xffff00 && c.y < 132), 'sun stays yellow');
+  assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0xffffff && c.width === 3 && c.height === 3 && c.y < 132), 'pin stays white');
+  assert.ok(h.calls.some(c => c.kind === 'rect' && (c.color === 0x00ff00 || c.color === 0x0000ff) && c.y < 132), 'globe keeps its day colors');
+  for (const i of [78, 171, 264, 354]) {
+    const x = h.eval('STAR_X[' + i + ']');
+    const y = h.eval('STAR_Y[' + i + ']');
+    assert.ok(h.calls.some(c => c.kind === 'rect' && c.color === 0x00ffff && c.x === x && c.y === y), 'season star ' + i);
+  }
+});
+
 test('adjacent HUD digits get a pixel of air so 24 does not read as one glyph', () => {
   const h = boot();
   assert.equal(h.eval('trackedWidth("THU SEP 24", dateFont) - render.getTextWidth("THU SEP 24", dateFont)'), 1);
