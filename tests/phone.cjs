@@ -409,6 +409,17 @@ test('choosing a theme saves it with the units and resends to the watch', () => 
   assert.doesNotMatch(page, /value="classic" checked/);
 });
 
+test('choosing Gray is on the settings page and sends theme 3', () => {
+  const h = loadPkjs({store: {wx2: JSON.stringify(CACHED)}});
+  h.listeners.showConfiguration();
+  const page = decodeURIComponent(h.opened[0].slice(h.opened[0].indexOf(',') + 1));
+  assert.match(page, /value="gray"/);
+  assert.match(page, /> Gray</);
+  h.listeners.webviewclosed({response: encodeURIComponent(JSON.stringify({units: 'F', theme: 'gray'}))});
+  assert.deepEqual(JSON.parse(h.store.get('cfg1')), {units: 'F', theme: 'gray'});
+  assert.equal(h.sent[0].dict.THEME, 3);
+});
+
 test('a settings save without a theme keeps the saved one', () => {
   const h = loadPkjs({store: {wx2: JSON.stringify(CACHED), cfg1: JSON.stringify({units: 'F', theme: 'black'})}});
   h.listeners.webviewclosed({response: encodeURIComponent(JSON.stringify({units: 'C'}))});
