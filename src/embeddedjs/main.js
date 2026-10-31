@@ -55,7 +55,7 @@ const THEMES = [
 	{ sky: black, paper: white, ink: black, muted: darkGray, star: white, season: cyan },
 	{ sky: black, paper: black, ink: white, muted: lightGray, star: white, season: cyan },
 	{ sky: white, paper: white, ink: black, muted: darkGray, star: black, season: deepBlue },
-	{ sky: darkGray, paper: darkGray, ink: white, muted: lightGray, star: white, season: cyan },
+	{ sky: darkGray, paper: darkGray, ink: white, muted: white, star: white, season: cyan },
 ];
 let theme = THEMES[0];
 
