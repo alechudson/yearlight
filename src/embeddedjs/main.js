@@ -43,7 +43,7 @@ const yellow = render.makeColor(255, 255, 0);
 const cyan = render.makeColor(0, 255, 255);
 const darkGray = render.makeColor(85, 85, 85);
 const lightGray = render.makeColor(170, 170, 170);
-const cobalt = render.makeColor(0, 85, 170);
+const deepBlue = render.makeColor(0, 0, 170);
 const dayOcean = render.makeColor(0, 0, 255);
 const nightOcean = render.makeColor(0, 0, 85);
 const dayLand = render.makeColor(0, 255, 0);
@@ -54,7 +54,7 @@ const nightLand = render.makeColor(0, 85, 0);
 const THEMES = [
 	{ sky: black, paper: white, ink: black, muted: darkGray, star: white, season: cyan },
 	{ sky: black, paper: black, ink: white, muted: lightGray, star: white, season: cyan },
-	{ sky: white, paper: white, ink: black, muted: darkGray, star: black, season: cobalt },
+	{ sky: white, paper: white, ink: black, muted: darkGray, star: black, season: deepBlue },
 ];
 let theme = THEMES[0];
 
@@ -73,7 +73,8 @@ let lastDate = new Date();
 let phoneWritable = false;
 let defaultGlobe = false;
 const phone = new Message({
-	keys: ["PAYLOAD", "CMD"],
+	// Array order is the message key number: package.json lists PAYLOAD, CMD, THEME.
+	keys: ["PAYLOAD", "CMD", "THEME"],
 	input: 1024,
 	output: 256,
 	onReadable() {
