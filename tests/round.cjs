@@ -110,7 +110,7 @@ test('round stars spread across the visible sky and stay put', () => {
 	let farthest = 0;
 	for (let y = 3; y < sky - 2; y += 8) {
 		for (let x = 3; x < 256; x += 8) {
-			if (!openSky(x, y, cx, cy, r, sky))
+			if (!roomySky(x, y, cx, cy, r, sky))
 				continue;
 			let near = Infinity;
 			for (let i = 0; i < stars.length; i++) {
@@ -122,8 +122,21 @@ test('round stars spread across the visible sky and stay put', () => {
 				farthest = near;
 		}
 	}
-	assert.ok(farthest <= 12, `a patch of sky is ${farthest}px from the nearest star`);
+	assert.ok(farthest <= 9, `a patch of sky is ${farthest}px from the nearest star`);
 });
+
+function roomySky(x, y, cx, cy, r, sky) {
+	if (!openSky(x, y, cx, cy, r, sky))
+		return false;
+	let n = 0;
+	for (let dy = -6; dy <= 6; dy += 3) {
+		for (let dx = -6; dx <= 6; dx += 3) {
+			if (openSky(x + dx, y + dy, cx, cy, r, sky))
+				n++;
+		}
+	}
+	return n >= 12;
+}
 
 test('HUD text stays inside the circle', () => {
 	const h = boot();
