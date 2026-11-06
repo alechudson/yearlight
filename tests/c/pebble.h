@@ -114,6 +114,16 @@ void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void
 
 bool connection_service_peek_pebblekit_connection(void);
 
+typedef struct {
+  uint8_t charge_percent;
+  bool is_charging;
+  bool is_plugged;
+} BatteryChargeState;
+typedef void (*BatteryStateHandler)(BatteryChargeState charge);
+BatteryChargeState battery_state_service_peek(void);
+void battery_state_service_subscribe(BatteryStateHandler handler);
+void battery_state_service_unsubscribe(void);
+
 #define PERSIST_DATA_MAX_LENGTH 256
 #define PERSIST_STRING_MAX_LENGTH PERSIST_DATA_MAX_LENGTH
 typedef int32_t status_t;

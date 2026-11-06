@@ -1,7 +1,7 @@
 // Host implementation of tests/c/pebble.h, driven by a script on stdin.
 //
 // Preamble, before the app starts (read on the first SDK call):
-//   size W H | now UNIX_S | hour12 0|1 | connected 0|1
+//   size W H | now UNIX_S | hour12 0|1 | connected 0|1 | battery PERCENT CHARGING
 //   persist_int KEY VALUE | persist_str KEY TEXT... | start
 // Then, one per line:
 //   now UNIX_S         set the clock
@@ -9,6 +9,7 @@
 //   timers             fire app timers that are due
 //   msg THEME PAYLOAD  inbox message; "-" leaves a key out
 //   obstruct H         unobstructed height (quick view), H = screen for none
+//   battery P C        battery event: P percent, C charging 0|1
 //   frame              render and print {"rects":[[argb,x,y,w,h]...],"texts":[[text,size,argb,x,y]...]}
 //   persist            print the persist store and how many writes the app made
 //   sent               print the number of outbox messages sent
@@ -44,6 +45,8 @@ static UnobstructedAreaHandlers s_unobstructed;
 static void *s_unobstructed_context;
 static AppMessageInboxReceived s_inbox;
 static int s_sent;
+static BatteryChargeState s_battery = {80, false, false};
+static BatteryStateHandler s_battery_handler;
 
 // ------------------------------------------------------------ persist
 
@@ -141,6 +144,8 @@ static void setup(void) {
       s_hour12 = a;
     else if (sscanf(line, "connected %d", &a) == 1)
       s_connected = a;
+    else if (sscanf(line, "battery %d %d", &a, &b) == 2)
+      s_battery = (BatteryChargeState){a, b, b};
     else if (sscanf(line, "persist_int %d %d", &a, &b) == 2)
       persist_write_int(a, b);
     else if (strncmp(line, "persist_str ", 12) == 0) {
@@ -167,6 +172,13 @@ time_t mock_time(time_t *out) {
 
 bool clock_is_24h_style(void) { return !s_hour12; }
 bool connection_service_peek_pebblekit_connection(void) { return s_connected; }
+
+BatteryChargeState battery_state_service_peek(void) {
+  setup();
+  return s_battery;
+}
+void battery_state_service_subscribe(BatteryStateHandler handler) { s_battery_handler = handler; }
+void battery_state_service_unsubscribe(void) { s_battery_handler = NULL; }
 
 // ------------------------------------------------------------ fonts and drawing
 
@@ -397,7 +409,7 @@ void app_event_loop(void) {
   while (fgets(line, sizeof(line), stdin)) {
     trim_line(line);
     long long t;
-    int h;
+    int h, b;
     if (sscanf(line, "now %lld", &t) == 1)
       s_now_ms = t * 1000;
     else if (strcmp(line, "tick") == 0) {
@@ -439,6 +451,10 @@ void app_event_loop(void) {
         s_unobstructed.change(0, s_unobstructed_context);
       if (s_unobstructed.did_change)
         s_unobstructed.did_change(s_unobstructed_context);
+    } else if (sscanf(line, "battery %d %d", &h, &b) == 2) {
+      s_battery = (BatteryChargeState){h, b, b};
+      if (s_battery_handler)
+        s_battery_handler(s_battery);
     } else if (strcmp(line, "frame") == 0)
       frame();
     else if (strcmp(line, "persist") == 0)

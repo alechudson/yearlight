@@ -17,6 +17,17 @@ const wire = require('./wire.cjs');
 const ROOT = path.join(__dirname, '..');
 const BIN = path.join(os.tmpdir(), `yearlight-host-${process.pid}`);
 const DISC_TOLERANCE = 0.01;
+// The battery glyph and its number, which the 1.2.0 JavaScript face does not
+// have: [x0, y0, x1, y1), by screen width. The comparison skips them, and the
+// battery tests hold every battery pixel inside and the box off the globe.
+const BATTERY_BOX = {200: [154, 0, 200, 30], 260: [203, 62, 250, 94]};
+const inBatteryBox = (w, x, y) => {
+	const [x0, y0, x1, y1] = BATTERY_BOX[w];
+	return x >= x0 && x < x1 && y >= y0 && y < y1;
+};
+// Text boxes whose top-left corner is in the box; tracking splits "80%" into "8" and "0%".
+const isBatteryText = w => t => inBatteryBox(w, t[3], t[4]);
+const batteryNumber = (w, texts) => texts.filter(isBatteryText(w)).map(t => t[0]).join('');
 
 const built = spawnSync('gcc', ['-std=c99', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-Os',
 	'-I', path.join(__dirname, 'c'), ...fs.readdirSync(path.join(ROOT, 'src/c')).filter(f => f.endsWith('.c')).map(f => path.join(ROOT, 'src/c', f)),
@@ -135,6 +146,8 @@ function runC({w, h, now, hour12, persist}, steps) {
 			lines.push(`msg ${step[1] ?? '-'} ${step[2] ?? '-'}`);
 		else if (step[0] === 'obstruct')
 			lines.push(`obstruct ${step[1]}`);
+		else if (step[0] === 'battery')
+			lines.push(`battery ${step[1]} ${step[2] ? 1 : 0}`);
 		else if (step[0] === 'check')
 			lines.push('frame');
 	}
@@ -204,7 +217,7 @@ function compare(result) {
 			const i = y * w + x;
 			const inDisc = (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= (r + 1) ** 2;
 			if (inDisc) disc++;
-			if (js.fb[i] === c.fb[i]) continue;
+			if (js.fb[i] === c.fb[i] || inBatteryBox(w, x, y)) continue;
 			if (inDisc) discDiff++;
 			else {
 				outsideDiff++;
@@ -218,7 +231,7 @@ function compare(result) {
 function check(results) {
 	let worst = 0;
 	for (const result of results) {
-		assert.deepEqual(result.c.texts, result.js.texts, `${result.label}: texts`);
+		assert.deepEqual(result.c.texts.filter(t => !isBatteryText(result.w)(t)), result.js.texts, `${result.label}: texts`);
 		const {disc, discDiff, outsideDiff, firstOutside} = compare(result);
 		assert.equal(outsideDiff, 0, `${result.label}: ${outsideDiff} pixels outside the globe differ, first ${firstOutside}`);
 		assert.ok(discDiff <= disc * DISC_TOLERANCE, `${result.label}: ${discDiff} of ${disc} disc pixels differ`);
@@ -351,6 +364,83 @@ for (const [name, w, h, quick] of LAYOUTS) {
 			['msg', null, wire({lat: 30, lon: -97, updatedAt: T('2026-09-09T15:30:00Z'), weather: {current: {temperature_2m: 77, weather_code: 0},
 				utc_offset_seconds: -18000, daily: days(-18000, 3)}})], ['check', 'stale on arrival'],
 		]]}));
+	});
+}
+
+for (const [name, w, h, , [cx, cy, r], hudY] of [['Time 2', 200, 228, 0, [100, 66, 64], 132], ['Round 2', 260, 260, 0, [130, 78, 70], 150]]) {
+	test(`${name}: the battery box stays off the globe`, () => {
+		const [x0, y0, x1, y1] = BATTERY_BOX[w];
+		for (let y = y0; y < y1; y++)
+			for (let x = x0; x < x1; x++)
+				assert.ok((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 > (r + 1) ** 2, `(${x},${y}) is on the globe`);
+	});
+
+	test(`${name}: the battery glyph and number, by charge and theme`, {skip}, () => {
+		const start = T('2026-09-09T18:00:00Z');
+		const CASES = [
+			// theme, percent, charging, fill width, ink, fill color
+			[0, 100, false, 9, 0xEA, 0xEA],
+			[0, 50, false, 5, 0xEA, 0xEA],
+			[0, 21, false, 2, 0xEA, 0xEA],
+			[0, 20, false, 2, 0xFF, 0xFF],
+			[0, 5, false, 1, 0xFF, 0xFF],
+			[0, 0, false, 0, 0xFF, 0xFF],
+			[0, 12, true, 1, 0xEA, 0xCF],
+			[0, 100, true, 9, 0xEA, 0xCF],
+			[2, 64, false, 6, 0xD5, 0xD5],
+			[2, 10, false, 1, 0xC0, 0xC0],
+			[2, 64, true, 6, 0xD5, 0xC2],
+			[3, 64, false, 6, 0xEA, 0xEA],
+		];
+		const steps = [['msg', null, forecast({updatedAt: start})]];
+		for (const [theme, percent, charging] of CASES)
+			steps.push(['msg', theme, null], ['battery', percent, charging], ['check']);
+		const c = runC({w, h, now: start, hour12: false, persist: []}, steps);
+		const sky = {0: 0xC0, 2: 0xFF, 3: 0xD5};
+		for (const [k, [theme, percent, charging, fillW, ink, level]] of CASES.entries()) {
+			const label = `theme ${theme}, ${percent}%${charging ? ' charging' : ''}`;
+			const {rects, texts} = c.frames[k];
+			const hud = rects.findIndex(([, x, y, rw]) => x === 0 && y === hudY && rw === w);
+			const n = 6 + (fillW ? 1 : 0);
+			const battery = rects.slice(hud - n, hud);
+			const [clear, ...glyph] = battery;
+			assert.equal(clear[0], sky[theme], `${label}: the stars are cleared in the sky's color`);
+			for (const [, x, y, rw, rh] of battery) {
+				assert.ok(inBatteryBox(w, x, y) && inBatteryBox(w, x + rw - 1, y + rh - 1), `${label}: [${x},${y},${rw},${rh}] leaves the box`);
+			}
+			assert.deepEqual(glyph.slice(0, 5).map(rect => rect[0]), [ink, ink, ink, ink, ink], `${label}: outline`);
+			if (fillW) {
+				assert.equal(glyph[5][0], level, `${label}: charge color`);
+				assert.equal(glyph[5][3], fillW, `${label}: charge width`);
+			}
+			const parts = texts.filter(isBatteryText(w));
+			assert.equal(batteryNumber(w, texts), `${percent}%`, `${label}: number`);
+			for (const [, size, color] of parts) {
+				assert.equal(size, 14);
+				assert.equal(color, ink, `${label}: number color`);
+			}
+			const tx = parts[0][3];
+			const ty = parts[0][4];
+			const textW = `${percent}%`.length * 7 + (percent >= 10 ? 1 : 0) + (percent === 100 ? 1 : 0);
+			assert.ok(inBatteryBox(w, tx + textW - 1, ty + 13), `${label}: the number leaves the box`);
+			// On Round 2 the glyph and the widest number stay 4 px inside the circle.
+			if (w === h) {
+				const corners = [...glyph.flatMap(([, x, y, rw, rh]) => [[x, y], [x + rw - 1, y], [x, y + rh - 1], [x + rw - 1, y + rh - 1]]),
+					[tx, ty + 4], [tx + textW + 3, ty + 4], [tx, ty + 13], [tx + textW + 3, ty + 13]];
+				for (const [x, y] of corners)
+					assert.ok((x + 0.5 - w / 2) ** 2 + (y + 0.5 - h / 2) ** 2 < (w / 2 - 4) ** 2, `${label}: (${x},${y}) is near the round edge`);
+			}
+			// The glyph and the number share a center line.
+			const [, gx, , gw] = glyph[0];
+			assert.ok(Math.abs((gx + (gw + 2) / 2) - (tx + textW / 2)) <= 1, `${label}: centered`);
+		}
+	});
+
+	test(`${name}: a battery event redraws the number, with or without a location`, {skip}, () => {
+		const start = T('2026-09-09T18:00:00Z');
+		const c = runC({w, h, now: start, hour12: false, persist: []},
+			[['check'], ['battery', 42, false], ['check'], ['msg', null, forecast({updatedAt: start})], ['battery', 41, true], ['check']]);
+		assert.deepEqual(c.frames.map(f => batteryNumber(w, f.texts)), ['80%', '42%', '41%']);
 	});
 }
 

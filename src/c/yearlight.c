@@ -58,16 +58,17 @@ static GColor color8(uint8_t argb) {
   return c;
 }
 
+// sky_muted is a quiet ink for the sky: the battery reads below the stars.
 typedef struct {
-  uint8_t sky, paper, ink, muted, star, season;
+  uint8_t sky, paper, ink, muted, star, season, sky_muted;
 } Theme;
 
 static const Theme THEMES[] = {
-  {BLACK, WHITE, BLACK, DARK_GRAY, WHITE, CYAN},
-  {BLACK, BLACK, WHITE, LIGHT_GRAY, WHITE, CYAN},
-  {WHITE, WHITE, BLACK, DARK_GRAY, BLACK, DEEP_BLUE},
-  {DARK_GRAY, DARK_GRAY, WHITE, WHITE, WHITE, CYAN},
-  {BLACK, DARK_GRAY, WHITE, WHITE, WHITE, CYAN},
+  {BLACK, WHITE, BLACK, DARK_GRAY, WHITE, CYAN, LIGHT_GRAY},
+  {BLACK, BLACK, WHITE, LIGHT_GRAY, WHITE, CYAN, LIGHT_GRAY},
+  {WHITE, WHITE, BLACK, DARK_GRAY, BLACK, DEEP_BLUE, DARK_GRAY},
+  {DARK_GRAY, DARK_GRAY, WHITE, WHITE, WHITE, CYAN, LIGHT_GRAY},
+  {BLACK, DARK_GRAY, WHITE, WHITE, WHITE, CYAN, LIGHT_GRAY},
 };
 #define THEME_COUNT ((int)(sizeof(THEMES) / sizeof(THEMES[0])))
 static int s_theme;
@@ -815,6 +816,73 @@ static void invalidate_globe(void) {
   s_globe.valid = false;
 }
 
+// ---------------------------------------------------------------- battery
+
+// The charge sits in the sky, clear of the globe, as a small glyph over the
+// number: in the top-right corner on Time 2, and on Round 2 beside the globe's
+// right edge, where the circle leaves the room.
+static BatteryChargeState s_battery;
+
+#define BATTERY_LOW 20
+#define BATTERY_BODY_W 13
+#define BATTERY_BODY_H 7
+#define BATTERY_W (BATTERY_BODY_W + 2)
+#define BATTERY_GAP 3
+// Gothic 14 Bold digit tops sit this far below the y draw_text is given.
+#define BATTERY_TEXT_DY 4
+#define BATTERY_TEXT_H 10
+#define BATTERY_H (BATTERY_BODY_H + BATTERY_GAP + BATTERY_TEXT_H)
+
+static void draw_battery_glyph(GContext *ctx, int x, int y, int percent, uint8_t ink,
+                               uint8_t level) {
+  fill(ctx, ink, x, y, BATTERY_BODY_W, 1);
+  fill(ctx, ink, x, y + BATTERY_BODY_H - 1, BATTERY_BODY_W, 1);
+  fill(ctx, ink, x, y + 1, 1, BATTERY_BODY_H - 2);
+  fill(ctx, ink, x + BATTERY_BODY_W - 1, y + 1, 1, BATTERY_BODY_H - 2);
+  fill(ctx, ink, x + BATTERY_BODY_W, y + 2, 2, BATTERY_BODY_H - 4);
+  // A pixel of air between the outline and the charge on every side.
+  const int inner = BATTERY_BODY_W - 4;
+  int level_w = (percent * inner + 50) / 100;
+  if (percent > 0 && level_w < 1)
+    level_w = 1;
+  if (level_w > 0)
+    fill(ctx, level, x + 2, y + 2, level_w, BATTERY_BODY_H - 4);
+}
+
+static void draw_battery(GContext *ctx) {
+  const Theme *theme = &THEMES[s_theme];
+  int percent = s_battery.charge_percent;
+  if (percent > 100)
+    percent = 100;
+  const bool low = percent <= BATTERY_LOW && !s_battery.is_charging;
+  // Quiet until it matters: full ink when low, the theme's accent while charging.
+  const uint8_t ink = low ? theme->star : theme->sky_muted;
+  const uint8_t level = s_battery.is_charging ? theme->season : ink;
+  char text[8];
+  snprintf(text, sizeof(text), "%d%%", percent);
+  const int text_w = tracked_width(text, &s_small_font);
+  // The stack's center: right of the globe on Round 2 (half way to the
+  // screen's edge), and inside the caption inset on Time 2.
+  const int cx = s_round ? (L->map_w / 2 + L->globe_r + L->map_w - 11) / 2
+                         : L->map_w - L->caption_inset - 16;
+  const int top = s_round ? L->globe_cy - BATTERY_H / 2 : 7;
+  const int glyph_x = cx - BATTERY_W / 2;
+  const int glyph_y = top;
+  const int text_x = cx - text_w / 2;
+  const int text_y = top + BATTERY_BODY_H + BATTERY_GAP;
+  // Clear the year stars from under it, with two pixels of margin.
+  const int x0 = glyph_x < text_x ? glyph_x : text_x;
+  const int x1 = glyph_x + BATTERY_W > text_x + text_w ? glyph_x + BATTERY_W : text_x + text_w;
+  fill(ctx, theme->sky, x0 - 2, top - 2, x1 - x0 + 4, BATTERY_H + 4);
+  draw_battery_glyph(ctx, glyph_x, glyph_y, percent, ink, level);
+  draw_tracked(ctx, text, &s_small_font, ink, text_x, text_y - BATTERY_TEXT_DY);
+}
+
+static void battery_changed(BatteryChargeState charge) {
+  s_battery = charge;
+  mark_dirty();
+}
+
 // ---------------------------------------------------------------- drawing
 
 static void draw_solar_dot(GContext *ctx, int x, int y) {
@@ -869,6 +937,7 @@ static void canvas_update(Layer *layer, GContext *ctx) {
     if (s_globe.has_pin)
       draw_location_pin(ctx, s_globe.pin.x, s_globe.pin.y);
   }
+  draw_battery(ctx);
 
   // The HUD. Caption and ruler keep their rows under a quick view.
   fill(ctx, theme->paper, 0, hud_y, w, bounds.size.h - hud_y);
@@ -1009,12 +1078,14 @@ static void init(void) {
   s_small_font = (Font){fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), 3};
   restore_theme();
   restore_payload();
+  s_battery = battery_state_service_peek();
 
   s_window = window_create();
   window_set_window_handlers(s_window, (WindowHandlers){.load = window_load, .unload = window_unload});
   window_stack_push(s_window, false);
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick);
+  battery_state_service_subscribe(battery_changed);
   unobstructed_area_service_subscribe(
       (UnobstructedAreaHandlers){.change = unobstructed_change, .did_change = unobstructed_did_change},
       NULL);
@@ -1026,6 +1097,7 @@ static void init(void) {
 
 static void deinit(void) {
   tick_timer_service_unsubscribe();
+  battery_state_service_unsubscribe();
   window_destroy(s_window);
 }
 
