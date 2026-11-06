@@ -15,6 +15,7 @@
     "uuid": "cf9c0d01-1aa2-44b2-a79f-644baa16d24c",
     "projectType": "moddable",
     "sdkVersion": "3",
+    "manifestVersion": 1,
     "enableMultiJS": true,
     "targetPlatforms": [
       "emery",
@@ -28,9 +29,9 @@
       "configurable"
     ],
     "messageKeys": [
-    "PAYLOAD",
-    "CMD",
-    "THEME"
+      "PAYLOAD",
+      "CMD",
+      "THEME"
     ],
     "resources": {
       "media": []

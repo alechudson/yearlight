@@ -22,7 +22,7 @@ function boot(store) {
   const context = vm.createContext({Poco, Message, screen:{}, Date:Clock, console:{log(){}},
     watch:{hour12:false, connected:{pebblekit:true}, addEventListener(name, fn){events[name]=fn;}},
     setTimeout(fn, delay){const id=++serial; timers.set(id,{fn, at:now+delay}); return id;}, clearTimeout(id){timers.delete(id);}});
-  if (store) context.localStorage={getItem(k){return store.has(k)?store.get(k):null;}, setItem(k,v){store.set(k,String(v)); store.writes=(store.writes||0)+1;}};
+  if (store) context.localStorage={getItem(k){return store.has(k)?store.get(k):null;}, setItem(k,v){store.set(k,String(v)); store.writes=(store.writes||0)+1; store.counts=store.counts||{}; store.counts[k]=(store.counts[k]||0)+1;}};
   context.fields = () => wire({lat:30, lon:-97, weather:context.data}).split(',');
   const mask = fs.readFileSync(path.join(__dirname,'../src/embeddedjs/worldmask.js'),'utf8').replace(/^export /gm,'');
   vm.runInContext(mask, context);
@@ -171,14 +171,17 @@ test('the last good payload is stored once and restored on relaunch',async()=>{
   h.deliver(wx());
   h.deliver(wx());
   h.deliver({error:1});
-  assert.equal(store.writes,1,'unchanged and error payloads do not rewrite flash');
+  assert.equal(store.counts.wx,1,'unchanged and error payloads do not rewrite flash');
   const again=boot(store);
   assert.equal(again.eval('state.lat'),null,'the clock paints before storage is read');
   await again.advance(0);
   assert.equal(again.eval('state.lat'),30);
   assert.equal(again.eval('state.status'),'ready');
   assert.ok(again.texts.includes('21°'));
-  assert.equal(store.writes,1);
+  assert.equal(store.counts.wx,1);
+  // The globe's land rows for the place are kept too, written once.
+  assert.equal(store.counts.ld,1);
+  assert.match(store.get('ld'),/^1,200,-97,30,/);
 });
 test('a phone payload that beats the restore wins',async()=>{
   const store=new Map([['wx','10,20,,50,0,0']]);
