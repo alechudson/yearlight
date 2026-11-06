@@ -31,7 +31,10 @@ const report = {
 		output: Number((main.match(/output: (\d+)/) || [])[1]),
 	},
 	liveData: {
-		maskBytes: 200 * 100 / 8,
+		// The land mask is read in place from worldmask.js strings; what stays live
+		// is the globe's per-row land flips (512 bytes, grown if needed) and spans.
+		maskBytes: 0,
+		landRowBytes: 512,
 		starBytes: 365 * 3,
 		weatherIconNumbers: countHexArrayNumbers(iconBlock),
 		moonPhaseNumbers: countHexArrayNumbers(moonBlock),

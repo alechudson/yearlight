@@ -1,7 +1,7 @@
 import Poco from "commodetto/Poco";
 import Message from "pebble/message";
-import { MASK, MASK_W, MASK_H } from "worldmask";
-import { STAR_N, STAR_X, STAR_Y, STAR_SHAPE, litStarCount, isSeasonStar } from "yearstars";
+import { isLandCell, MASK_W, MASK_H } from "worldmask";
+import { STAR_N, STAR_X, STAR_Y, STAR_SHAPE, litStarCount, seasonStars, useRoundStars } from "yearstars";
 
 const render = new Poco(screen);
 
@@ -178,8 +178,7 @@ function isLand(lon, lat) {
 		y = 0;
 	else if (y >= MASK_H)
 		y = MASK_H - 1;
-	const i = y * MASK_W + x;
-	return (MASK[i >> 3] >> (i & 7)) & 1;
+	return isLandCell(x, y);
 }
 
 function viewOrigin() {
@@ -205,33 +204,274 @@ const GLOBE_X1 = Math.min(MAP_W - 2, (GLOBE_CX + GLOBE_R - 1) & ~1) + 2;
 const GLOBE_Y0 = Math.max(0, (GLOBE_CY - GLOBE_R) & ~1);
 const GLOBE_Y1 = Math.min(MAP_H - 2, (GLOBE_CY + GLOBE_R - 1) & ~1) + 2;
 
-// One land bit per 2x2 globe sample. Land depends only on the view origin, so the
-// asin/atan2 inverse projection runs on relocation, not on every terminator step.
+// The globe is drawn from rows of 2x2 samples. Row r is y = GLOBE_Y0 + 2r and
+// sample i is x = GLOBE_X0 + 2i; the disc covers samples spanA[r]..spanB[r] of
+// a row (NO_SPAN: none). The work then goes by runs, not by samples: a row
+// paints one rectangle wherever its land or its side of the terminator changes.
 const SAMPLE_W = (GLOBE_X1 - GLOBE_X0) >> 1;
-const landBits = new Uint8Array((SAMPLE_W * ((GLOBE_Y1 - GLOBE_Y0) >> 1) + 7) >> 3);
-const landFor = { lon: 9999, lat: 9999 };
+const SAMPLE_ROWS = (GLOBE_Y1 - GLOBE_Y0) >> 1;
+const NO_SPAN = 255;
+const spanA = new Uint8Array(SAMPLE_ROWS);
+const spanB = new Uint8Array(SAMPLE_ROWS);
+// A symmetric box mirrors sample i to SAMPLE_W - 1 - i (x to -x).
+const MIRROR = GLOBE_X0 + GLOBE_X1 === 2 * GLOBE_CX;
 
-function cacheLand(origin, lon0, sinLat0, cosLat0) {
-	landBits.fill(0);
-	for (let y = GLOBE_Y0; y < GLOBE_Y1; y += 2) {
-		const yn = (GLOBE_CY - (y + 1)) / GLOBE_R;
-		for (let x = GLOBE_X0; x < GLOBE_X1; x += 2) {
-			const xn = (x + 1 - GLOBE_CX) / GLOBE_R;
+function inDisc(i, yy) {
+	const xn = (GLOBE_X0 + 2 * i + 1 - GLOBE_CX) / GLOBE_R;
+	return xn * xn + yy <= 1;
+}
+
+for (let r = 0; r < SAMPLE_ROWS; r++) {
+	const yn = (GLOBE_CY - (GLOBE_Y0 + 2 * r + 1)) / GLOBE_R;
+	const yy = yn * yn;
+	let a = 0;
+	let b = -1;
+	if (yy <= 1) {
+		// Estimate the run from the circle, then settle it on the exact test.
+		const half = Math.sqrt(1 - yy) * GLOBE_R;
+		a = Math.floor((GLOBE_CX - half - 1 - GLOBE_X0) / 2);
+		b = Math.floor((GLOBE_CX + half - 1 - GLOBE_X0) / 2);
+		a = a < 0 ? 0 : a > SAMPLE_W ? SAMPLE_W : a;
+		b = b < -1 ? -1 : b > SAMPLE_W - 1 ? SAMPLE_W - 1 : b;
+		while (a > 0 && inDisc(a - 1, yy))
+			a--;
+		while (b < SAMPLE_W - 1 && inDisc(b + 1, yy))
+			b++;
+		while (a <= b && !inDisc(a, yy))
+			a++;
+		while (b >= a && !inDisc(b, yy))
+			b--;
+	}
+	spanA[r] = a <= b ? a : NO_SPAN;
+	spanB[r] = a <= b ? b : 0;
+}
+
+// Land along each row, as the samples where it flips between water and land:
+// row r starts on water at spanA[r] and flips at landT[landOff[r]..landOff[r + 1]).
+// Land depends only on the view origin, so the asin/atan2 inverse projection
+// runs on relocation, not on every terminator step, and the rows are stored
+// so a relaunch (after every notification, for a watchface) skips it too.
+let landT = new Uint8Array(512);
+const landOff = new Uint16Array(SAMPLE_ROWS + 1);
+const landFor = { lon: 9999, lat: 9999 };
+const rowLand = new Uint8Array(SAMPLE_W);
+let landDirty = false;
+let landSaving = false;
+
+function landFlip(n, t) {
+	if (n === landT.length) {
+		const grown = new Uint8Array(n * 2);
+		grown.set(landT);
+		landT = grown;
+	}
+	landT[n] = t;
+	return n + 1;
+}
+
+function wrapLon(lon) {
+	return ((lon + 180) % 360 + 360) % 360 - 180;
+}
+
+// Mirror samples share z and the latitude, and atan2 is odd in x, so a
+// symmetric row needs one inverse projection per pair.
+function computeLand(lon0, sinLat0, cosLat0) {
+	let n = 0;
+	for (let r = 0; r < SAMPLE_ROWS; r++) {
+		landOff[r] = n;
+		const a = spanA[r];
+		if (a === NO_SPAN)
+			continue;
+		const b = spanB[r];
+		const mirror = MIRROR && a + b === SAMPLE_W - 1;
+		const last = mirror ? (a + b) >> 1 : b;
+		const yn = (GLOBE_CY - (GLOBE_Y0 + 2 * r + 1)) / GLOBE_R;
+		for (let i = a; i <= last; i++) {
+			const xn = (GLOBE_X0 + 2 * i + 1 - GLOBE_CX) / GLOBE_R;
 			const rr = xn * xn + yn * yn;
-			if (rr > 1)
-				continue;
 			const z = Math.sqrt(1 - rr);
 			const lat = Math.asin(Math.max(-1, Math.min(1, yn * cosLat0 + z * sinLat0))) * 180 / Math.PI;
-			let lon = (lon0 + Math.atan2(xn, z * cosLat0 - yn * sinLat0)) * 180 / Math.PI;
-			lon = ((lon + 180) % 360 + 360) % 360 - 180;
-			if (isLand(lon, lat)) {
-				const i = ((y - GLOBE_Y0) >> 1) * SAMPLE_W + ((x - GLOBE_X0) >> 1);
-				landBits[i >> 3] |= 1 << (i & 7);
+			const t = Math.atan2(xn, z * cosLat0 - yn * sinLat0);
+			rowLand[i] = isLand(wrapLon((lon0 + t) * 180 / Math.PI), lat);
+			if (mirror && a + b - i !== i)
+				rowLand[a + b - i] = isLand(wrapLon((lon0 - t) * 180 / Math.PI), lat);
+		}
+		let land = 0;
+		for (let i = a; i <= b; i++) {
+			if (rowLand[i] !== land) {
+				land ^= 1;
+				n = landFlip(n, i);
 			}
+		}
+	}
+	landOff[SAMPLE_ROWS] = n;
+}
+
+// Stored as "format,MAP_W,lon,lat," and then, row by row, each flip as the
+// character 48 + sample and "/" to end the row.
+const LAND_KEY = "ld";
+// Bump when worldmask.js or the projection changes, so stored rows are redone.
+const LAND_FORMAT = 1;
+
+function landTag(origin) {
+	return LAND_FORMAT + "," + MAP_W + "," + origin.lon + "," + origin.lat + ",";
+}
+
+// A string's bytes, and bytes back to a string, in one pass with the XS
+// extensions (charCodeAt walks the string from its start on the watch); plain
+// loops where they are missing, as in the host tests. Stored text is ASCII.
+function stringChars(text) {
+	if (typeof ArrayBuffer.fromString === "function")
+		return new Uint8Array(ArrayBuffer.fromString(text));
+	const chars = new Uint8Array(text.length);
+	for (let i = 0; i < text.length; i++)
+		chars[i] = text.charCodeAt(i);
+	return chars;
+}
+
+function charsString(chars) {
+	if (typeof String.fromArrayBuffer === "function")
+		return String.fromArrayBuffer(chars.buffer);
+	let text = "";
+	for (let i = 0; i < chars.length; i++)
+		text += String.fromCharCode(chars[i]);
+	return text;
+}
+
+function restoreLand(tag) {
+	let text;
+	try {
+		text = localStorage.getItem(LAND_KEY);
+	} catch (e) {
+		return false;
+	}
+	if (typeof text !== "string" || !text.startsWith(tag))
+		return false;
+	const chars = stringChars(text.slice(tag.length));
+	let k = 0;
+	let n = 0;
+	for (let r = 0; r < SAMPLE_ROWS; r++) {
+		landOff[r] = n;
+		const a = spanA[r];
+		const b = spanB[r];
+		let last = -1;
+		for (;;) {
+			if (k >= chars.length)
+				return false;
+			const c = chars[k++];
+			if (c === 47)
+				break;
+			const t = c - 48;
+			if (a === NO_SPAN || t < a || t > b || t <= last)
+				return false;
+			n = landFlip(n, t);
+			last = t;
+		}
+	}
+	landOff[SAMPLE_ROWS] = n;
+	return k === chars.length;
+}
+
+function saveLand() {
+	landSaving = false;
+	if (!landDirty)
+		return;
+	landDirty = false;
+	const chars = new Uint8Array(landOff[SAMPLE_ROWS] + SAMPLE_ROWS);
+	let k = 0;
+	for (let r = 0; r < SAMPLE_ROWS; r++) {
+		for (let i = landOff[r]; i < landOff[r + 1]; i++)
+			chars[k++] = 48 + landT[i];
+		chars[k++] = 47;
+	}
+	try {
+		localStorage.setItem(LAND_KEY, landTag(landFor) + charsString(chars));
+	} catch (e) {
+	}
+}
+
+function loadLand(origin, lon0, sinLat0, cosLat0) {
+	if (restoreLand(landTag(origin)))
+		landDirty = false;
+	else {
+		computeLand(lon0, sinLat0, cosLat0);
+		landDirty = true;
+		// Write once this frame is out, rather than hold up its paint.
+		if (!landSaving) {
+			landSaving = true;
+			setTimeout(saveLand, 0);
 		}
 	}
 	landFor.lon = origin.lon;
 	landFor.lat = origin.lat;
+}
+
+// Night where vx * xn + vy * yn + vz * z < NIGHT_SIN, as isNightLonLat would
+// say for the sample's place. Along a row z = sqrt(1 - yn^2 - xn^2), so this
+// changes at most twice, at roots of a quadratic in xn. The samples beside each
+// root are tested exactly; between them the side cannot change, so a row costs
+// a handful of square roots instead of one per sample.
+let shadeX = 0;
+let shadeY = 0;
+let shadeZ = 0;
+let shadeA2 = 0;
+const probeAt = new Int16Array(12);
+const nightFlips = new Uint8Array(SAMPLE_W + 1);
+let nightCount = 0;
+
+function nightAt(i, vyyn, yy) {
+	const xn = (GLOBE_X0 + 2 * i + 1 - GLOBE_CX) / GLOBE_R;
+	return shadeX * xn + vyyn + shadeZ * Math.sqrt(1 - (xn * xn + yy)) < NIGHT_SIN ? 1 : 0;
+}
+
+// Fills nightFlips[0..nightCount) with the samples in a + 1..b where night
+// changes, and returns whether sample a is night.
+function nightRow(a, b, yn) {
+	const yy = yn * yn;
+	const vyyn = shadeY * yn;
+	let probes = 0;
+	probeAt[probes++] = a;
+	if (shadeA2 > 1e-12) {
+		const c = NIGHT_SIN - vyyn;
+		const d = shadeA2 * (1 - yy) - c * c;
+		// A near-zero d is a terminator grazing the row: probe the tangent too.
+		if (d > -1e-6) {
+			const s = d > 0 ? Math.sqrt(d) * Math.abs(shadeZ) : 0;
+			for (let k = -1; k <= 1; k += 2) {
+				const root = (c * shadeX + k * s) / shadeA2;
+				const u = Math.floor((root * GLOBE_R + GLOBE_CX - 1 - GLOBE_X0) / 2);
+				for (let i = u - 1; i <= u + 2; i++) {
+					const p = i < a ? a : i > b ? b : i;
+					if (p > probeAt[probes - 1])
+						probeAt[probes++] = p;
+				}
+			}
+		}
+	}
+	if (b > probeAt[probes - 1])
+		probeAt[probes++] = b;
+	const first = nightAt(a, vyyn, yy);
+	let side = first;
+	let n = 0;
+	for (let k = 1; k < probes; k++) {
+		const i = probeAt[k];
+		const v = nightAt(i, vyyn, yy);
+		if (v === side)
+			continue;
+		// Probes come in runs of neighbours; a wider gap never holds a root,
+		// but walk it sample by sample if its ends ever disagree.
+		for (let g = probeAt[k - 1] + 1; g < i; g++) {
+			if (nightAt(g, vyyn, yy) !== side) {
+				nightFlips[n++] = g;
+				side ^= 1;
+			}
+		}
+		if (v !== side) {
+			nightFlips[n++] = i;
+			side = v;
+		}
+	}
+	nightCount = n;
+	return first;
 }
 
 function drawMap(sun, origin) {
@@ -242,151 +482,71 @@ function drawMap(sun, origin) {
 	const sinLon0 = Math.sin(lon0);
 	const cosLon0 = Math.cos(lon0);
 	if (landFor.lon !== origin.lon || landFor.lat !== origin.lat)
-		cacheLand(origin, lon0, sinLat0, cosLat0);
+		loadLand(origin, lon0, sinLat0, cosLat0);
 	// isNightLonLat as a dot product: the sun's direction rotated into the globe's
 	// view frame, so each sample needs no trig to find its side of the terminator.
 	const sunX = -sun.cosY * sun.cosX;
 	const sunY = -sun.cosY * sun.sinX;
 	const sunZ = -sun.sinY;
-	const a = sunX * cosLon0 + sunY * sinLon0;
-	const vx = sunY * cosLon0 - sunX * sinLon0;
-	const vy = sunZ * cosLat0 - a * sinLat0;
-	const vz = a * cosLat0 + sunZ * sinLat0;
+	const toward = sunX * cosLon0 + sunY * sinLon0;
+	shadeX = sunY * cosLon0 - sunX * sinLon0;
+	shadeY = sunZ * cosLat0 - toward * sinLat0;
+	shadeZ = toward * cosLat0 + sunZ * sinLat0;
+	shadeA2 = shadeX * shadeX + shadeZ * shadeZ;
 	render.fillRectangle(theme.sky, 0, 0, MAP_W, MAP_H);
-	for (let y = GLOBE_Y0; y < GLOBE_Y1; y += 2) {
-		let runX = 0;
-		let runColor = -1;
-		const yn = (GLOBE_CY - (y + 1)) / GLOBE_R;
-		const row = ((y - GLOBE_Y0) >> 1) * SAMPLE_W;
-		for (let x = GLOBE_X0; x <= GLOBE_X1; x += 2) {
-			let color = -1;
-			if (x < GLOBE_X1) {
-				const xn = (x + 1 - GLOBE_CX) / GLOBE_R;
-				const rr = xn * xn + yn * yn;
-				if (rr <= 1) {
-					const i = row + ((x - GLOBE_X0) >> 1);
-					const land = (landBits[i >> 3] >> (i & 7)) & 1;
-					const night = vx * xn + vy * yn + vz * Math.sqrt(1 - rr) < NIGHT_SIN;
-					color = (land ? 2 : 0) + (night ? 1 : 0);
-				}
+	for (let r = 0; r < SAMPLE_ROWS; r++) {
+		const a = spanA[r];
+		if (a === NO_SPAN)
+			continue;
+		const end = spanB[r] + 1;
+		const y = GLOBE_Y0 + 2 * r;
+		let night = nightRow(a, end - 1, (GLOBE_CY - (y + 1)) / GLOBE_R);
+		let land = 0;
+		let li = landOff[r];
+		const le = landOff[r + 1];
+		let ni = 0;
+		let p = a;
+		for (;;) {
+			const lt = li < le ? landT[li] : end;
+			const nt = ni < nightCount ? nightFlips[ni] : end;
+			const e = lt < nt ? lt : nt;
+			if (e > p) {
+				render.fillRectangle(GLOBE_COLORS[land * 2 + night], GLOBE_X0 + 2 * p, y, 2 * (e - p), 2);
+				p = e;
 			}
-			if (color === runColor)
-				continue;
-			if (runColor >= 0)
-				render.fillRectangle(GLOBE_COLORS[runColor], runX, y, x - runX, 2);
-			runX = x;
-			runColor = color;
+			if (e === end)
+				break;
+			if (lt === e) {
+				land ^= 1;
+				li++;
+			}
+			if (nt === e) {
+				night ^= 1;
+				ni++;
+			}
 		}
 	}
 }
 
-// Bearings from the rectangular catalog clump in the round side lobes and on
-// the rim. Sit the stars on a jittered hex lattice inside the visible circle,
-// then shuffle with a fixed seed so the year fills evenly and nothing jumps.
-if (ROUND) {
-	const screen = MAP_W >> 1;
-	const sky2 = (screen - 2) * (screen - 2);
-	const clear2 = (GLOBE_R + 4) * (GLOBE_R + 4);
-	function open(x, y) {
-		if (x < 1 || x > 255 || y < 1 || y + 1 >= MAP_H)
-			return false;
-		for (let k = 0; k < 4; k++) {
-			const px = x + (k & 1 ? 1 : -1);
-			const py = y + (k & 2 ? 1 : -1);
-			const dx = px + 0.5 - screen;
-			const dy = py + 0.5 - screen;
-			if (dx * dx + dy * dy > sky2)
-				return false;
-		}
-		const gx = x + 0.5 - GLOBE_CX;
-		const gy = y + 0.5 - GLOBE_CY;
-		return gx * gx + gy * gy > clear2;
-	}
-	function mix(n) {
-		n = (n ^ (n << 13)) >>> 0;
-		n = (n ^ (n >>> 17)) >>> 0;
-		n = (n ^ (n << 5)) >>> 0;
-		return n >>> 0;
-	}
-	function count(step) {
-		const rowH = step * Math.sqrt(3) / 2;
-		let n = 0;
-		for (let row = 0, y = rowH * 0.5; y < MAP_H - 1; row++, y += rowH) {
-			const y0 = y | 0;
-			for (let x = (row & 1) ? step * 0.5 : 1; x < 256; x += step)
-				if (open(x | 0, y0))
-					n++;
-		}
-		return n;
-	}
-	let step = 6.5;
-	let cells = count(step);
-	while (cells < STAR_N && step > 4) {
-		step -= 0.25;
-		cells = count(step);
-	}
-	const rowH = step * Math.sqrt(3) / 2;
-	const gap2 = 16;
-	let seen = 0;
-	let placed = 0;
-	let next = 0;
-	for (let row = 0, y = rowH * 0.5; y < MAP_H - 1; row++, y += rowH) {
-		const y0 = y | 0;
-		for (let x = (row & 1) ? step * 0.5 : 1; x < 256; x += step) {
-			const x0 = x | 0;
-			if (!open(x0, y0))
-				continue;
-			if (seen === next && placed < STAR_N) {
-				const h = mix(x0 + y0 * 257);
-				let px = x0;
-				let py = y0;
-				if (h & 4)
-					px += (h & 1) ? 1 : -1;
-				else
-					py += (h & 2) ? 1 : -1;
-				if (!open(px, py)) {
-					px = x0;
-					py = y0;
-				} else {
-					for (let j = Math.max(0, placed - 48); j < placed; j++) {
-						const dx = px - STAR_X[j];
-						const dy = py - STAR_Y[j];
-						if (dx * dx + dy * dy < gap2) {
-							px = x0;
-							py = y0;
-							break;
-						}
-					}
-				}
-				STAR_X[placed] = px;
-				STAR_Y[placed] = py;
-				placed++;
-				next = (placed * cells / STAR_N) | 0;
-			}
-			seen++;
-		}
-	}
-	let seed = 0x9e3779b9;
-	for (let i = STAR_N - 1; i > 0; i--) {
-		seed = (seed * 1664525 + 1013904223) >>> 0;
-		const j = seed % (i + 1);
-		const tx = STAR_X[i];
-		STAR_X[i] = STAR_X[j];
-		STAR_X[j] = tx;
-		const ty = STAR_Y[i];
-		STAR_Y[i] = STAR_Y[j];
-		STAR_Y[j] = ty;
-	}
-}
+if (ROUND)
+	useRoundStars();
 
 function drawYearStars(now) {
-	const n = litStarCount(now);
-	const year = now.getFullYear();
+	const lit = litStarCount(now);
+	const season = seasonStars(now.getFullYear());
+	let next = 0;
 	for (let i = 0; i < STAR_N; i++) {
-		const season = isSeasonStar(i, year);
-		if (i >= n && !season)
+		const isSeason = next < 4 && season[next] === i;
+		if (isSeason)
+			next++;
+		else if (i >= lit) {
+			// Past today only the season stars show: skip to the next one.
+			if (next === 4)
+				break;
+			i = season[next] - 1;
 			continue;
-		const color = season ? theme.season : theme.star;
+		}
+		const color = isSeason ? theme.season : theme.star;
 		const x = STAR_X[i];
 		const y = STAR_Y[i];
 		const shape = STAR_SHAPE[i];
