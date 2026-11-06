@@ -139,7 +139,7 @@ function runC({w, h, now, hour12, persist}, steps) {
 			lines.push('frame');
 	}
 	lines.push('persist');
-	const run = spawnSync(BIN, [], {input: lines.join('\n') + '\n', encoding: 'utf8', env: {...process.env, TZ: process.env.TZ}});
+	const run = spawnSync(BIN, [], {input: lines.join('\n') + '\n', encoding: 'utf8', maxBuffer: 1 << 28, env: {...process.env, TZ: process.env.TZ}});
 	if (run.status !== 0)
 		throw new Error(`C build exited ${run.status}: ${run.stderr}`);
 	const out = run.stdout.trim().split('\n').map(line => JSON.parse(line));
@@ -293,6 +293,36 @@ for (const [name, w, h, quick] of LAYOUTS) {
 		}
 		const worst = check(scenario({w, h, start: T('2026-01-01T00:00:00Z'), sessions: [steps]}));
 		process.stdout.write(`# ${name}: worst globe disc difference ${(worst * 100).toFixed(2)}%\n`);
+	});
+
+	test(`${name}: twenty cities across the globe, through the seasons and the day`, {skip}, () => {
+		const CITIES = [
+			['Jerusalem', 31.7683, 35.2137, 7200], ['Tel Aviv', 32.0853, 34.7818, 7200],
+			['Reykjavik', 64.1466, -21.9426, 0], ['London', 51.5072, -0.1276, 0],
+			['Cairo', 30.0444, 31.2357, 7200], ['Nairobi', -1.2921, 36.8219, 10800],
+			['Cape Town', -33.9249, 18.4241, 7200], ['Moscow', 55.7558, 37.6173, 10800],
+			['Mumbai', 19.076, 72.8777, 19800], ['Singapore', 1.3521, 103.8198, 28800],
+			['Tokyo', 35.6762, 139.6503, 32400], ['Sydney', -33.8688, 151.2093, 39600],
+			['Auckland', -36.8485, 174.7633, 46800], ['Honolulu', 21.3069, -157.8583, -36000],
+			['Anchorage', 61.2181, -149.9003, -32400], ['Los Angeles', 34.0522, -118.2437, -28800],
+			['Mexico City', 19.4326, -99.1332, -21600], ['New York', 40.7128, -74.006, -18000],
+			['Lima', -12.0464, -77.0428, -18000], ['Ushuaia', -54.8019, -68.303, -10800],
+		];
+		const steps = [];
+		for (const [i, [city, lat, lon, offset]] of CITIES.entries()) {
+			for (const [d, date] of ['2026-03-20', '2026-06-21', '2026-09-23', '2026-12-21'].entries()) {
+				for (const hour of [0, 6, 12, 18]) {
+					const time = Date.parse(`${date}T${String(hour).padStart(2, '0')}:${String(7 * i % 60).padStart(2, '0')}:00Z`);
+					// Alternate a location-only start with a forecast that has no daily data:
+					// both put the computed sunrise and sunset on the ruler.
+					const payload = (d + hour / 6) % 2 === 0 ? `${lat},${lon}`
+						: wire({lat, lon, updatedAt: time, weather: {current: {temperature_2m: 15 + i, weather_code: [0, 2, 61, 71][d]}, utc_offset_seconds: offset}});
+					steps.push(['now', time], ['msg', null, payload], ['check', `${city} ${date} ${hour}:00Z`]);
+				}
+			}
+		}
+		const worst = check(scenario({w, h, start: Date.parse('2026-01-01T00:00:00Z'), sessions: [steps]}));
+		process.stdout.write(`# ${name}: 20 cities, worst globe disc difference ${(worst * 100).toFixed(2)}%\n`);
 	});
 
 	test(`${name}: payload edge cases parse as the JavaScript face does`, {skip}, () => {
