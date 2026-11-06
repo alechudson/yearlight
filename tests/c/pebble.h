@@ -133,6 +133,8 @@ status_t persist_write_int(const uint32_t key, const int32_t value);
 int persist_read_string(const uint32_t key, char *buffer, const size_t buffer_size);
 int persist_write_string(const uint32_t key, const char *cstring);
 status_t persist_delete(const uint32_t key);
+int persist_read_data(const uint32_t key, void *buffer, const size_t buffer_size);
+int persist_write_data(const uint32_t key, const void *data, const size_t size);
 
 typedef enum { TUPLE_BYTE_ARRAY = 0, TUPLE_CSTRING = 1, TUPLE_UINT = 2, TUPLE_INT = 3 } TupleType;
 typedef union {

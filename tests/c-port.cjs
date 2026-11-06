@@ -1,8 +1,12 @@
 // Holds the native C watchface to the JavaScript face it replaces
 // (tests/reference/*.js, Yearlight 1.2.0). Both run the same scripts of time,
 // phone messages, timers and quick views; their final frames must match:
-// every pixel outside the globe disc and every text draw exactly, and the
-// disc to within the C build's fixed-point land and terminator rounding.
+// every pixel outside the globe disc and every text draw exactly.
+//
+// The C globe goes past 1.2.0: one sample per pixel and a finer land mask. So
+// the disc is held instead to a plain floating-point globe drawn here, from
+// the same mask, place and sun the JavaScript face last shaded with, to
+// within the C build's fixed-point land and terminator rounding.
 process.env.TZ = 'America/Chicago';
 
 const test = require('node:test');
@@ -20,7 +24,7 @@ const DISC_TOLERANCE = 0.01;
 // The battery glyph and its number, which the 1.2.0 JavaScript face does not
 // have: [x0, y0, x1, y1), by screen width. The comparison skips them, and the
 // battery tests hold every battery pixel inside and the box off the globe.
-const BATTERY_BOX = {200: [154, 0, 200, 30], 260: [203, 62, 250, 94]};
+const BATTERY_BOX = {200: [143, 0, 200, 18], 260: [200, 96, 254, 114]};
 const inBatteryBox = (w, x, y) => {
 	const [x0, y0, x1, y1] = BATTERY_BOX[w];
 	return x >= x0 && x < x1 && y >= y0 && y < y1;
@@ -28,6 +32,41 @@ const inBatteryBox = (w, x, y) => {
 // Text boxes whose top-left corner is in the box; tracking splits "80%" into "8" and "0%".
 const isBatteryText = w => t => inBatteryBox(w, t[3], t[4]);
 const batteryNumber = (w, texts) => texts.filter(isBatteryText(w)).map(t => t[0]).join('');
+
+// ------------------------------------------------------------ the reference globe
+
+const MASK_SRC = fs.readFileSync(path.join(ROOT, 'src/c/worldmask.c'), 'utf8');
+const MASK_DIM = fs.readFileSync(path.join(ROOT, 'src/c/tables.h'), 'utf8');
+const MASK_W = Number(MASK_DIM.match(/#define MASK_W (\d+)/)[1]);
+const MASK_H = Number(MASK_DIM.match(/#define MASK_H (\d+)/)[1]);
+const MASK = Uint8Array.from(MASK_SRC.match(/WORLD_MASK\[[^\]]*\] = \{([^}]*)\}/)[1].match(/0x[0-9a-f]{2}/g).map(v => parseInt(v, 16)));
+const GLOBE_COLORS = [0xC3, 0xC1, 0xCC, 0xC4];  // day ocean, night ocean, day land, night land
+const NIGHT_SIN = Math.sin(-0.833 * Math.PI / 180);
+
+// The globe color of pixel (x, y) for a view origin and sun, or -1 off the disc:
+// read at the pixel's center, in doubles, from the C build's mask.
+function referenceGlobe([cx, cy, r], origin, sun) {
+	const lat0 = origin.lat * Math.PI / 180, lon0 = origin.lon * Math.PI / 180;
+	const sinLat0 = Math.sin(lat0), cosLat0 = Math.cos(lat0), sinLon0 = Math.sin(lon0), cosLon0 = Math.cos(lon0);
+	const sunX = -sun.cosY * sun.cosX, sunY = -sun.cosY * sun.sinX, sunZ = -sun.sinY;
+	const a = sunX * cosLon0 + sunY * sinLon0;
+	const vx = sunY * cosLon0 - sunX * sinLon0, vy = sunZ * cosLat0 - a * sinLat0, vz = a * cosLat0 + sunZ * sinLat0;
+	return (x, y) => {
+		const xn = (x + 0.5 - cx) / r, yn = (cy - (y + 0.5)) / r;
+		const rr = xn * xn + yn * yn;
+		if (rr > 1) return -1;
+		const z = Math.sqrt(1 - rr);
+		const lat = Math.asin(Math.max(-1, Math.min(1, yn * cosLat0 + z * sinLat0))) * 180 / Math.PI;
+		let lon = (lon0 + Math.atan2(xn, z * cosLat0 - yn * sinLat0)) * 180 / Math.PI;
+		lon = ((lon + 180) % 360 + 360) % 360 - 180;
+		const mx = Math.min(MASK_W - 1, Math.floor((lon + 180) / 360 * MASK_W));
+		const my = Math.min(MASK_H - 1, Math.floor((90 - lat) / 180 * MASK_H));
+		const i = my * MASK_W + mx;
+		const land = (MASK[i >> 3] >> (i & 7)) & 1;
+		const night = vx * xn + vy * yn + vz * z < NIGHT_SIN;
+		return GLOBE_COLORS[land * 2 + (night ? 1 : 0)];
+	};
+}
 
 const built = spawnSync('gcc', ['-std=c99', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-Os',
 	'-I', path.join(__dirname, 'c'), ...fs.readdirSync(path.join(ROOT, 'src/c')).filter(f => f.endsWith('.c')).map(f => path.join(ROOT, 'src/c', f)),
@@ -98,6 +137,8 @@ function bootJS({w, h, now, hour12, store}) {
 	const evaluate = code => vm.runInContext(code, context);
 	// Every draw repaints the whole HUD, so the last one holds all its texts.
 	evaluate('drawScreen = (draw => function (event) { invalidateHud(); return draw(event); })(drawScreen);');
+	// The place and sun the globe was last shaded with, for the reference globe.
+	evaluate('var lastMap = null; drawMap = (map => function (sun, origin) { lastMap = {sun, origin}; return map(sun, origin); })(drawMap);');
 	let lastHour = new Date(clock).getHours();
 	return {
 		fb, eval: evaluate,
@@ -135,7 +176,8 @@ function bootJS({w, h, now, hour12, store}) {
 function runC({w, h, now, hour12, persist}, steps) {
 	const lines = [`size ${w} ${h}`, `now ${Math.floor(now / 1000)}`, `hour12 ${hour12 ? 1 : 0}`];
 	for (const [key, value] of persist)
-		lines.push(typeof value === 'number' ? `persist_int ${key} ${value}` : `persist_str ${key} ${value}`);
+		lines.push(typeof value === 'number' ? `persist_int ${key} ${value}`
+			: typeof value === 'object' ? `persist_data ${key} ${value.data}` : `persist_str ${key} ${value}`);
 	lines.push('start');
 	for (const step of steps) {
 		if (step[0] === 'now')
@@ -200,7 +242,8 @@ function scenario({w = 200, h = 228, hour12 = false, start, sessions}) {
 			else if (step[0] === 'check') {
 				const got = c.frames[frame++];
 				results.push({label: step[1], w, h, js: {fb: js.fb.slice(), texts: js.texts().slice()},
-					c: {fb: raster(w, h, got.rects), texts: got.texts}, globe: js.eval('[GLOBE_CX, GLOBE_CY, GLOBE_R]')});
+					c: {fb: raster(w, h, got.rects), texts: got.texts}, globe: js.eval('[GLOBE_CX, GLOBE_CY, GLOBE_R]'),
+					map: js.eval('lastMap && (state.lat !== null || defaultGlobe) ? JSON.stringify(lastMap) : null'), sky: js.eval('theme.sky')});
 			}
 		}
 		persist = c.persist;
@@ -209,20 +252,30 @@ function scenario({w = 200, h = 228, hour12 = false, start, sessions}) {
 }
 
 function compare(result) {
-	const {w, h, js, c, globe: [cx, cy, r]} = result;
+	const {w, h, js, c, globe: [cx, cy, r], sky} = result;
+	const map = result.map && JSON.parse(result.map);
+	const ref = map ? referenceGlobe([cx, cy, r], map.origin, map.sun) : () => -1;
 	let disc = 0, discDiff = 0, outsideDiff = 0;
 	let firstOutside = null;
 	for (let y = 0; y < h; y++) {
 		for (let x = 0; x < w; x++) {
 			const i = y * w + x;
 			const inDisc = (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= (r + 1) ** 2;
-			if (inDisc) disc++;
-			if (js.fb[i] === c.fb[i] || inBatteryBox(w, x, y)) continue;
-			if (inDisc) discDiff++;
-			else {
+			if (!inDisc) {
+				if (js.fb[i] === c.fb[i] || inBatteryBox(w, x, y)) continue;
 				outsideDiff++;
 				firstOutside ??= `(${x},${y}) js ${js.fb[i]} c ${c.fb[i]}`;
+				continue;
 			}
+			disc++;
+			// On the disc: globe pixels against the reference globe; anything drawn
+			// over it (sun, pin) against the JavaScript face; sky off the 1 px disc.
+			const want = ref(x, y);
+			const got = c.fb[i];
+			if (GLOBE_COLORS.includes(got)) {
+				if (got !== want) discDiff++;
+			} else if (!(got === js.fb[i] || (want < 0 && got === sky)))
+				discDiff++;
 		}
 	}
 	return {disc, discDiff, outsideDiff, firstOutside};
@@ -375,7 +428,7 @@ for (const [name, w, h, , [cx, cy, r], hudY] of [['Time 2', 200, 228, 0, [100, 6
 				assert.ok((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 > (r + 1) ** 2, `(${x},${y}) is on the globe`);
 	});
 
-	test(`${name}: the battery glyph and number, by charge and theme`, {skip}, () => {
+	test(`${name}: the battery glyph, number and percent sign, by charge and theme`, {skip}, () => {
 		const start = T('2026-09-09T18:00:00Z');
 		const CASES = [
 			// theme, percent, charging, fill width, ink, fill color
@@ -397,42 +450,48 @@ for (const [name, w, h, , [cx, cy, r], hudY] of [['Time 2', 200, 228, 0, [100, 6
 			steps.push(['msg', theme, null], ['battery', percent, charging], ['check']);
 		const c = runC({w, h, now: start, hour12: false, persist: []}, steps);
 		const sky = {0: 0xC0, 2: 0xFF, 3: 0xD5};
+		// The percent sign, 5x7: one rectangle per run of set bits.
+		const PERCENT = ['##..#', '##..#', '...#.', '..#..', '.#...', '#..##', '#..##'];
+		const percentRects = PERCENT.reduce((n, row) => n + row.split(/\.+/).filter(Boolean).length, 0);
+		const [right, top] = w === h ? [249, 102] : [191, 6];
 		for (const [k, [theme, percent, charging, fillW, ink, level]] of CASES.entries()) {
 			const label = `theme ${theme}, ${percent}%${charging ? ' charging' : ''}`;
 			const {rects, texts} = c.frames[k];
 			const hud = rects.findIndex(([, x, y, rw]) => x === 0 && y === hudY && rw === w);
-			const n = 6 + (fillW ? 1 : 0);
+			const n = 1 + 5 + (fillW ? 1 : 0) + percentRects;
 			const battery = rects.slice(hud - n, hud);
-			const [clear, ...glyph] = battery;
+			const [clear, ...rest] = battery;
+			const glyph = rest.slice(0, 5 + (fillW ? 1 : 0));
+			const sign = rest.slice(glyph.length);
 			assert.equal(clear[0], sky[theme], `${label}: the stars are cleared in the sky's color`);
-			for (const [, x, y, rw, rh] of battery) {
+			for (const [, x, y, rw, rh] of battery)
 				assert.ok(inBatteryBox(w, x, y) && inBatteryBox(w, x + rw - 1, y + rh - 1), `${label}: [${x},${y},${rw},${rh}] leaves the box`);
-			}
 			assert.deepEqual(glyph.slice(0, 5).map(rect => rect[0]), [ink, ink, ink, ink, ink], `${label}: outline`);
 			if (fillW) {
 				assert.equal(glyph[5][0], level, `${label}: charge color`);
 				assert.equal(glyph[5][3], fillW, `${label}: charge width`);
 			}
+			// Glyph, digits, then the sign, ending at the right edge.
 			const parts = texts.filter(isBatteryText(w));
-			assert.equal(batteryNumber(w, texts), `${percent}%`, `${label}: number`);
-			for (const [, size, color] of parts) {
+			assert.equal(parts.map(t => t[0]).join(''), `${percent}`, `${label}: the digits`);
+			for (const [, size, color, , ty] of parts) {
 				assert.equal(size, 14);
-				assert.equal(color, ink, `${label}: number color`);
+				assert.equal(color, ink, `${label}: digit color`);
+				// Gothic 14 Bold digits sit 5 px under their box top: from top to top + 9.
+				assert.equal(ty + 5, top, `${label}: digits' top`);
 			}
-			const tx = parts[0][3];
-			const ty = parts[0][4];
-			const textW = `${percent}%`.length * 7 + (percent >= 10 ? 1 : 0) + (percent === 100 ? 1 : 0);
-			assert.ok(inBatteryBox(w, tx + textW - 1, ty + 13), `${label}: the number leaves the box`);
-			// On Round 2 the glyph and the widest number stay 4 px inside the circle.
-			if (w === h) {
-				const corners = [...glyph.flatMap(([, x, y, rw, rh]) => [[x, y], [x + rw - 1, y], [x, y + rh - 1], [x + rw - 1, y + rh - 1]]),
-					[tx, ty + 4], [tx + textW + 3, ty + 4], [tx, ty + 13], [tx + textW + 3, ty + 13]];
-				for (const [x, y] of corners)
+			const signX = Math.min(...sign.map(r => r[1]));
+			const signY = Math.min(...sign.map(r => r[2]));
+			assert.ok(sign.every(r => r[0] === ink), `${label}: sign color`);
+			assert.equal(Math.max(...sign.map(r => r[1] + r[3])), right, `${label}: the sign ends at the right edge`);
+			assert.equal(signY + 7, top + 9, `${label}: the sign sits on the digits' baseline`);
+			assert.ok(parts[0][3] > glyph[0][1] + 15 && signX > parts[parts.length - 1][3], `${label}: glyph, then digits, then the sign`);
+			const [, gx, gy] = glyph[0];
+			assert.equal(gy, top + 1, `${label}: the glyph is centered on the digits`);
+			// On Round 2 everything stays 4 px inside the circle.
+			if (w === h)
+				for (const [x, y] of [[gx, gy], [gx, gy + 6], [right - 1, top], [right - 1, top + 8]])
 					assert.ok((x + 0.5 - w / 2) ** 2 + (y + 0.5 - h / 2) ** 2 < (w / 2 - 4) ** 2, `${label}: (${x},${y}) is near the round edge`);
-			}
-			// The glyph and the number share a center line.
-			const [, gx, , gw] = glyph[0];
-			assert.ok(Math.abs((gx + (gw + 2) / 2) - (tx + textW / 2)) <= 1, `${label}: centered`);
 		}
 	});
 
@@ -440,7 +499,52 @@ for (const [name, w, h, , [cx, cy, r], hudY] of [['Time 2', 200, 228, 0, [100, 6
 		const start = T('2026-09-09T18:00:00Z');
 		const c = runC({w, h, now: start, hour12: false, persist: []},
 			[['check'], ['battery', 42, false], ['check'], ['msg', null, forecast({updatedAt: start})], ['battery', 41, true], ['check']]);
-		assert.deepEqual(c.frames.map(f => batteryNumber(w, f.texts)), ['80%', '42%', '41%']);
+		assert.deepEqual(c.frames.map(f => batteryNumber(w, f.texts)), ['80', '42', '41']);
+	});
+}
+
+for (const [name, w, h] of [['Time 2', 200, 228], ['Round 2', 260, 260]]) {
+	test(`${name}: a relaunch draws the stored land exactly as computed, and storage stays in budget`, {skip}, () => {
+		const start = T('2026-09-09T18:00:00Z');
+		const later = start + 2000;
+		const data = forecast({lat: 31.7683, lon: 35.2137, offset: 7200, updatedAt: start});
+		// First launch: the land is computed, then written a second after the frame.
+		const first = runC({w, h, now: start, hour12: false, persist: []},
+			[['msg', 0, data], ['check'], ['now', later], ['timers'], ['check']]);
+		const land = first.persist.filter(([key]) => key >= 10);
+		assert.ok(land.length >= 2, 'the land is stored');
+		assert.ok(land.every(([, v]) => typeof v === 'object' && v.data.length / 2 <= 256), 'in data values of at most 256 bytes');
+		assert.equal(first.writes, 1 + land.length, 'the payload and the land, once (theme 0 is the default)');
+		// Pebble keeps 4 KB per app: the biggest payload and the land, with a
+		// generous 16 bytes of overhead per key, fit.
+		const used = first.persist.reduce((n, [, v]) => n + 16 + (typeof v === 'number' ? 4 : typeof v === 'object' ? v.data.length / 2 : v.length + 1), 0);
+		assert.ok(used + 500 < 4096, `storage ${used} bytes`);
+
+		// Relaunch at the same place: the same frame, and nothing written.
+		const again = runC({w, h, now: later, hour12: false, persist: first.persist}, [['check'], ['now', later + 2000], ['timers']]);
+		assert.deepEqual(again.frames[0], first.frames[1], 'the frame drawn from storage is the computed one');
+		assert.equal(again.writes, 0, 'the stored land is read, not rewritten');
+
+		// Damaged or mismatched storage is computed afresh: the same frame, stored again.
+		const flip = hex => (parseInt(hex[0], 16) ^ 1).toString(16) + hex.slice(1);
+		const damaged = [
+			['a flipped land bit', first.persist.map(([k, v]) => [k, k === 11 ? {data: flip(v.data)} : v])],
+			['a missing land key', first.persist.filter(([k]) => k !== 12)],
+			['a damaged header', first.persist.map(([k, v]) => [k, k === 10 ? {data: flip(v.data)} : v])],
+			['a short header', first.persist.map(([k, v]) => [k, k === 10 ? {data: v.data.slice(0, -2)} : v])],
+		];
+		for (const [label, persist] of damaged) {
+			const run = runC({w, h, now: later, hour12: false, persist}, [['check'], ['now', later + 2000], ['timers']]);
+			assert.deepEqual(run.frames[0], first.frames[1], `${label}: the same frame`);
+			assert.equal(run.writes, land.length, `${label}: the land is stored again`);
+		}
+
+		// Another place is not drawn from the stored land.
+		const moved = forecast({lat: 31.7683, lon: 35.2138, offset: 7200, updatedAt: start});
+		const fresh = runC({w, h, now: later, hour12: false, persist: []}, [['msg', 0, moved], ['check']]);
+		const elsewhere = runC({w, h, now: later, hour12: false, persist: first.persist}, [['msg', 0, moved], ['check'], ['now', later + 2000], ['timers']]);
+		assert.deepEqual(elsewhere.frames[0], fresh.frames[0], 'a new place is computed');
+		assert.equal(elsewhere.writes, 1 + land.length, 'and its land stored');
 	});
 }
 
@@ -479,15 +583,31 @@ test('the baked Round 2 star table is what the lattice generator lays out', () =
 	assert.deepEqual(layout, [r.mapW, r.mapH, r.globeCY, r.globeR]);
 });
 
-test('the C tables hold the JavaScript face\'s mask and stars', () => {
+test('the C stars are the JavaScript face\'s, and the finer mask agrees with its coarse one', () => {
 	const src = name => fs.readFileSync(path.join(ROOT, 'src/c', name), 'utf8');
 	const {cArray} = require('../scripts/gen-round-stars.cjs');
 	const ctx = vm.createContext({});
 	for (const file of ['worldmask', 'yearstars'])
 		vm.runInContext(fs.readFileSync(path.join(__dirname, `reference/${file}.js`), 'utf8').replace(/^export /gm, ''), ctx);
-	const body = src('worldmask.c').match(/WORLD_MASK\[[^\]]*\] = \{([^}]*)\}/)[1];
-	const mask = Uint8Array.from(body.match(/0x[0-9a-f]{2}/g).map(v => parseInt(v, 16)));
-	assert.deepEqual(Array.from(mask), Array.from(vm.runInContext('MASK', ctx)));
 	for (const name of ['STAR_X', 'STAR_Y', 'STAR_SHAPE'])
 		assert.deepEqual(Array.from(cArray(src('yearstars.c'), name)), Array.from(vm.runInContext(name, ctx)), name);
+	// 1:50m at 400x200 against 1:110m at 200x100: each coarse cell is land when
+	// at least two of its four fine cells are. They differ only along coasts.
+	assert.equal(MASK.length, MASK_W * MASK_H / 8);
+	const old = vm.runInContext('MASK', ctx);
+	const [ow, oh] = [vm.runInContext('MASK_W', ctx), vm.runInContext('MASK_H', ctx)];
+	const fx = MASK_W / ow, fy = MASK_H / oh;
+	const bit = (m, i) => (m[i >> 3] >> (i & 7)) & 1;
+	let same = 0;
+	for (let y = 0; y < oh; y++)
+		for (let x = 0; x < ow; x++) {
+			let n = 0;
+			for (let j = 0; j < fy; j++)
+				for (let i = 0; i < fx; i++)
+					n += bit(MASK, (y * fy + j) * MASK_W + x * fx + i);
+			if ((2 * n >= fx * fy ? 1 : 0) === bit(old, y * ow + x)) same++;
+		}
+	const agree = same / (ow * oh);
+	process.stdout.write(`# the 1:50m mask agrees with 1:110m on ${(agree * 100).toFixed(1)}% of coarse cells\n`);
+	assert.ok(agree > 0.95, `agreement ${agree}`);
 });

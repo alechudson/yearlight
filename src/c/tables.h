@@ -3,8 +3,8 @@
 
 // Constant data, kept in flash: nothing is decoded at launch.
 
-#define MASK_W 200
-#define MASK_H 100
+#define MASK_W 400
+#define MASK_H 200
 // Land bit for mask cell (x, y): WORLD_MASK[i >> 3] >> (i & 7) & 1, i = y * MASK_W + x.
 extern const uint8_t WORLD_MASK[MASK_W * MASK_H / 8];
 

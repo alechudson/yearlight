@@ -29,6 +29,7 @@ static int64_t s_atan_k[5];
 static uint8_t s_land[(MAX_SIDE * MAX_SIDE + 7) / 8];
 static uint8_t s_color[(MAX_SIDE * MAX_SIDE + 3) / 4];
 static bool s_land_valid;
+static bool s_land_unsaved;
 static double s_land_lon, s_land_lat;
 
 static const uint8_t GLOBE_COLORS[4] = {
@@ -175,9 +176,160 @@ static void compute_land(double lon, double lat) {
   }
 }
 
+// ---------------------------------------------------------------- land cache
+
+// The land of the last place is kept in storage, so a relaunch there reads
+// it back instead of projecting every pixel again. Only the disc's bits are
+// kept. The header names everything the bits depend on: the place, to the
+// last bit of each double, the globe's geometry, the land mask and this
+// code's version; anything that differs, or a checksum that fails, and the
+// land is computed afresh. A restored globe is the computed one, bit for bit.
+//
+// Bump LAND_VERSION whenever compute_land or the sample grid changes.
+#define LAND_VERSION 1
+#define LAND_KEY_HEAD 10
+#define LAND_KEY_DATA 11  // and on, one key per LAND_CHUNK bytes
+#define LAND_CHUNK 240
+
+typedef struct {
+  uint16_t version;
+  uint16_t bytes;
+  int16_t cx, cy, r, x0, y0, sample_w, rows;
+  uint32_t mask_hash;
+  uint32_t checksum;
+  double lon, lat;
+} LandHead;
+
+static uint32_t fnv1a(uint32_t h, const uint8_t *data, size_t n) {
+  for (size_t i = 0; i < n; i++)
+    h = (h ^ data[i]) * 16777619u;
+  return h;
+}
+
+static uint32_t mask_hash(void) {
+  static uint32_t hash;
+  if (!hash)
+    hash = fnv1a(2166136261u, WORLD_MASK, sizeof(WORLD_MASK)) | 1;
+  return hash;
+}
+
+static void land_head(LandHead *head, double lon, double lat, int bytes, uint32_t checksum) {
+  memset(head, 0, sizeof(*head));
+  head->version = LAND_VERSION;
+  head->bytes = bytes;
+  head->cx = s_cx;
+  head->cy = s_cy;
+  head->r = s_r;
+  head->x0 = s_x0;
+  head->y0 = s_y0;
+  head->sample_w = s_sample_w;
+  head->rows = s_rows;
+  head->mask_hash = mask_hash();
+  head->checksum = checksum;
+  head->lon = lon;
+  head->lat = lat;
+}
+
+// Samples inside the disc: the land bits kept, in span order.
+static int disc_samples(void) {
+  int n = 0;
+  for (int r = 0; r < s_rows; r++)
+    if (s_span_a[r] != NO_SPAN)
+      n += s_span_b[r] - s_span_a[r] + 1;
+  return n;
+}
+
+static int chunk_len(int bytes, int key) {
+  const int at = (key - LAND_KEY_DATA) * LAND_CHUNK;
+  return bytes - at < LAND_CHUNK ? bytes - at : LAND_CHUNK;
+}
+
+// Reads the bits back one storage key at a time, straight into s_land.
+static bool load_land(double lon, double lat) {
+  LandHead stored;
+  if (persist_read_data(LAND_KEY_HEAD, &stored, sizeof(stored)) != (int)sizeof(stored))
+    return false;
+  const int bits = disc_samples();
+  const int bytes = (bits + 7) / 8;
+  LandHead want;
+  land_head(&want, lon, lat, bytes, stored.checksum);
+  if (memcmp(&want, &stored, sizeof(want)) != 0)
+    return false;
+  uint8_t chunk[LAND_CHUNK];
+  uint32_t hash = 2166136261u;
+  int key = LAND_KEY_DATA;
+  int n = 0;  // bit within the chunk
+  memset(s_land, 0, sizeof(s_land));
+  for (int r = 0; r < s_rows; r++) {
+    if (s_span_a[r] == NO_SPAN)
+      continue;
+    for (int i = s_span_a[r]; i <= s_span_b[r]; i++, n++) {
+      if (n == LAND_CHUNK * 8)
+        n = 0;
+      if (n == 0) {
+        const int len = chunk_len(bytes, key);
+        if (persist_read_data(key++, chunk, len) != len)
+          return false;
+        hash = fnv1a(hash, chunk, len);
+      }
+      if ((chunk[n >> 3] >> (n & 7)) & 1) {
+        const int k = r * s_sample_w + i;
+        s_land[k >> 3] |= 1 << (k & 7);
+      }
+    }
+  }
+  return hash == stored.checksum;
+}
+
+bool globe_land_unsaved(void) {
+  return s_land_valid && s_land_unsaved;
+}
+
+void globe_save_land(void) {
+  if (!globe_land_unsaved())
+    return;
+  const int bytes = (disc_samples() + 7) / 8;
+  uint8_t chunk[LAND_CHUNK];
+  uint32_t hash = 2166136261u;
+  int key = LAND_KEY_DATA;
+  int n = 0;
+  memset(chunk, 0, sizeof(chunk));
+  for (int r = 0; r < s_rows; r++) {
+    if (s_span_a[r] == NO_SPAN)
+      continue;
+    for (int i = s_span_a[r]; i <= s_span_b[r]; i++) {
+      const int k = r * s_sample_w + i;
+      if ((s_land[k >> 3] >> (k & 7)) & 1)
+        chunk[n >> 3] |= 1 << (n & 7);
+      if (++n == LAND_CHUNK * 8) {
+        hash = fnv1a(hash, chunk, LAND_CHUNK);
+        persist_write_data(key++, chunk, LAND_CHUNK);
+        memset(chunk, 0, sizeof(chunk));
+        n = 0;
+      }
+    }
+  }
+  if (n) {
+    const int len = chunk_len(bytes, key);
+    hash = fnv1a(hash, chunk, len);
+    persist_write_data(key, chunk, len);
+  }
+  // The header goes last: a write cut short leaves a header whose checksum
+  // fails against the new bits, so the land is computed again.
+  LandHead head;
+  land_head(&head, s_land_lon, s_land_lat, bytes, hash);
+  persist_write_data(LAND_KEY_HEAD, &head, sizeof(head));
+  s_land_unsaved = false;
+}
+
+// ---------------------------------------------------------------- shading
+
 void globe_shade(double lon, double lat, const Sun *sun) {
   if (!s_land_valid || lon != s_land_lon || lat != s_land_lat) {
-    compute_land(lon, lat);
+    const bool restored = load_land(lon, lat);
+    if (!restored)
+      compute_land(lon, lat);
+    s_land_unsaved = !restored;
     s_land_valid = true;
     s_land_lon = lon;
     s_land_lat = lat;

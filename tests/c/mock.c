@@ -2,7 +2,7 @@
 //
 // Preamble, before the app starts (read on the first SDK call):
 //   size W H | now UNIX_S | hour12 0|1 | connected 0|1 | battery PERCENT CHARGING
-//   persist_int KEY VALUE | persist_str KEY TEXT... | start
+//   persist_int KEY VALUE | persist_str KEY TEXT... | persist_data KEY HEX | start
 // Then, one per line:
 //   now UNIX_S         set the clock
 //   tick               minute tick (HOUR_UNIT when the hour changed)
@@ -54,19 +54,22 @@ typedef struct {
   bool used;
   uint32_t key;
   bool is_int;
+  bool is_data;
   int32_t value;
   char text[PERSIST_STRING_MAX_LENGTH];
+  int size;
 } Slot;
-static Slot s_persist[16];
+#define SLOTS 32
+static Slot s_persist[SLOTS];
 static int s_persist_writes;
 
 static Slot *slot(uint32_t key, bool create) {
-  for (int i = 0; i < 16; i++)
+  for (int i = 0; i < SLOTS; i++)
     if (s_persist[i].used && s_persist[i].key == key)
       return &s_persist[i];
   if (!create)
     return NULL;
-  for (int i = 0; i < 16; i++)
+  for (int i = 0; i < SLOTS; i++)
     if (!s_persist[i].used) {
       memset(&s_persist[i], 0, sizeof(Slot));
       s_persist[i].used = true;
@@ -93,7 +96,7 @@ status_t persist_write_int(const uint32_t key, const int32_t value) {
 
 int persist_read_string(const uint32_t key, char *buffer, const size_t buffer_size) {
   Slot *p = slot(key, false);
-  if (!p || p->is_int || buffer_size == 0)
+  if (!p || p->is_int || p->is_data || buffer_size == 0)
     return -1;
   strncpy(buffer, p->text, buffer_size - 1);
   buffer[buffer_size - 1] = 0;
@@ -106,8 +109,34 @@ int persist_write_string(const uint32_t key, const char *cstring) {
   s_persist_writes++;
   Slot *p = slot(key, true);
   p->is_int = false;
+  p->is_data = false;
   strcpy(p->text, cstring);
   return strlen(cstring) + 1;
+}
+
+int persist_read_data(const uint32_t key, void *buffer, const size_t buffer_size) {
+  Slot *p = slot(key, false);
+  if (!p || !p->is_data)
+    return -1;
+  const int n = (int)buffer_size < p->size ? (int)buffer_size : p->size;
+  memcpy(buffer, p->text, n);
+  return n;
+}
+
+int persist_write_data(const uint32_t key, const void *data, const size_t size) {
+  if (size > PERSIST_DATA_MAX_LENGTH)
+    return -1;
+  s_persist_writes++;
+  Slot *p = slot(key, true);
+  p->is_int = false;
+  p->is_data = true;
+  memcpy(p->text, data, size);
+  p->size = size;
+  return size;
+}
+
+static int hex_digit(char c) {
+  return c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10;
 }
 
 status_t persist_delete(const uint32_t key) {
@@ -148,7 +177,18 @@ static void setup(void) {
       s_battery = (BatteryChargeState){a, b, b};
     else if (sscanf(line, "persist_int %d %d", &a, &b) == 2)
       persist_write_int(a, b);
-    else if (strncmp(line, "persist_str ", 12) == 0) {
+    else if (strncmp(line, "persist_data ", 13) == 0) {
+      char *rest = line + 13;
+      char *space = strchr(rest, ' ');
+      if (space) {
+        *space = 0;
+        uint8_t data[PERSIST_DATA_MAX_LENGTH];
+        int n = 0;
+        for (char *h = space + 1; h[0] && h[1] && n < (int)sizeof(data); h += 2)
+          data[n++] = hex_digit(h[0]) << 4 | hex_digit(h[1]);
+        persist_write_data(atoi(rest), data, n);
+      }
+    } else if (strncmp(line, "persist_str ", 12) == 0) {
       char *rest = line + 12;
       char *space = strchr(rest, ' ');
       if (space) {
@@ -388,13 +428,19 @@ static void frame(void) {
 static void dump_persist(void) {
   printf("{\"persist\":[");
   bool first = true;
-  for (int i = 0; i < 16; i++) {
+  for (int i = 0; i < SLOTS; i++) {
     if (!s_persist[i].used)
       continue;
     printf(first ? "[%u," : ",[%u,", s_persist[i].key);
     first = false;
     if (s_persist[i].is_int)
       printf("%d]", s_persist[i].value);
+    else if (s_persist[i].is_data) {
+      printf("{\"data\":\"");
+      for (int k = 0; k < s_persist[i].size; k++)
+        printf("%02x", (uint8_t)s_persist[i].text[k]);
+      printf("\"}]");
+    }
     else {
       json_string(s_persist[i].text);
       printf("]");

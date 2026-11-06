@@ -20,3 +20,10 @@ void globe_shade(double lon, double lat, const Sun *sun);
 
 // Paints the shaded globe, one rectangle per run of a color along each row.
 void globe_draw(GContext *ctx);
+
+// Whether the land of the current place is not in storage yet.
+bool globe_land_unsaved(void);
+
+// Stores the land of the current place, for a relaunch there to read back.
+// Writes flash: call it after the frame is on screen.
+void globe_save_land(void);

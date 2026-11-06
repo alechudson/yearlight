@@ -642,6 +642,7 @@ static bool valid_coordinates(double lat, double lon) {
 
 // The last good payload survives relaunches, so returning to the face does not
 // wait on the phone; the theme too, so a relaunch paints in it at once.
+// globe.c keeps the land of the last place from key 10 on.
 enum { KEY_THEME = 1, KEY_PAYLOAD = 2, KEY_PAYLOAD_MORE = 3 };
 #define PAYLOAD_MAX 500
 #define PAYLOAD_PART (PERSIST_STRING_MAX_LENGTH - 1)
@@ -818,9 +819,9 @@ static void invalidate_globe(void) {
 
 // ---------------------------------------------------------------- battery
 
-// The charge sits in the sky, clear of the globe, as a small glyph over the
-// number: in the top-right corner on Time 2, and on Round 2 beside the globe's
-// right edge, where the circle leaves the room.
+// The charge sits in the sky, clear of the globe: a small battery glyph with
+// the number to its right, in the top-right corner on Time 2, and on Round 2
+// right of the globe's lower half, where the circle leaves the room.
 static BatteryChargeState s_battery;
 
 #define BATTERY_LOW 20
@@ -828,10 +829,20 @@ static BatteryChargeState s_battery;
 #define BATTERY_BODY_H 7
 #define BATTERY_W (BATTERY_BODY_W + 2)
 #define BATTERY_GAP 3
-// Gothic 14 Bold digit tops sit this far below the y draw_text is given.
-#define BATTERY_TEXT_DY 4
-#define BATTERY_TEXT_H 10
-#define BATTERY_H (BATTERY_BODY_H + BATTERY_GAP + BATTERY_TEXT_H)
+// Gothic 14 Bold digits are 9 px tall, their tops 3 px below the y that
+// draw_text is given (5 below the box top, which is 2 above y).
+#define DIGIT_H 9
+#define DIGIT_TOP 3
+// The percent sign, a little smaller than the font's: 5x7, on the digits'
+// baseline, a pixel after them.
+#define PERCENT_W 5
+#define PERCENT_H 7
+static const uint8_t PERCENT_SIGN[PERCENT_H] = {0x19, 0x19, 0x02, 0x04, 0x08, 0x13, 0x13};
+// The right edge and the digits' top: Time 2 inside the caption inset.
+#define BATTERY_RIGHT_RECT (200 - 9)
+#define BATTERY_TOP_RECT 6
+#define BATTERY_RIGHT_ROUND 249
+#define BATTERY_TOP_ROUND 102
 
 static void draw_battery_glyph(GContext *ctx, int x, int y, int percent, uint8_t ink,
                                uint8_t level) {
@@ -858,29 +869,42 @@ static void draw_battery(GContext *ctx) {
   // Quiet until it matters: full ink when low, the theme's accent while charging.
   const uint8_t ink = low ? theme->star : theme->sky_muted;
   const uint8_t level = s_battery.is_charging ? theme->season : ink;
-  char text[8];
-  snprintf(text, sizeof(text), "%d%%", percent);
-  const int text_w = tracked_width(text, &s_small_font);
-  // The stack's center: right of the globe on Round 2 (half way to the
-  // screen's edge), and inside the caption inset on Time 2.
-  const int cx = s_round ? (L->map_w / 2 + L->globe_r + L->map_w - 11) / 2
-                         : L->map_w - L->caption_inset - 16;
-  const int top = s_round ? L->globe_cy - BATTERY_H / 2 : 7;
-  const int glyph_x = cx - BATTERY_W / 2;
-  const int glyph_y = top;
-  const int text_x = cx - text_w / 2;
-  const int text_y = top + BATTERY_BODY_H + BATTERY_GAP;
-  // Clear the year stars from under it, with two pixels of margin.
-  const int x0 = glyph_x < text_x ? glyph_x : text_x;
-  const int x1 = glyph_x + BATTERY_W > text_x + text_w ? glyph_x + BATTERY_W : text_x + text_w;
-  fill(ctx, theme->sky, x0 - 2, top - 2, x1 - x0 + 4, BATTERY_H + 4);
-  draw_battery_glyph(ctx, glyph_x, glyph_y, percent, ink, level);
-  draw_tracked(ctx, text, &s_small_font, ink, text_x, text_y - BATTERY_TEXT_DY);
+  char digits[4];
+  snprintf(digits, sizeof(digits), "%d", percent);
+  const int digits_w = tracked_width(digits, &s_small_font);
+  const int width = BATTERY_W + BATTERY_GAP + digits_w + 1 + PERCENT_W;
+  const int right = s_round ? BATTERY_RIGHT_ROUND : BATTERY_RIGHT_RECT;
+  const int top = s_round ? BATTERY_TOP_ROUND : BATTERY_TOP_RECT;
+  const int left = right - width;
+  // Clear the year stars from under it: two pixels of air, one on the
+  // globe's side, where the room is tight.
+  fill(ctx, theme->sky, left - 1, top - 2, width + 3, DIGIT_H + 4);
+  draw_battery_glyph(ctx, left, top + (DIGIT_H - BATTERY_BODY_H) / 2, percent, ink, level);
+  const int digits_x = left + BATTERY_W + BATTERY_GAP;
+  draw_tracked(ctx, digits, &s_small_font, ink, digits_x, top - DIGIT_TOP);
+  draw_bit_rows(ctx, PERCENT_SIGN, false, PERCENT_H, PERCENT_W, digits_x + digits_w + 1,
+                top + DIGIT_H - PERCENT_H, 1, ink);
 }
 
 static void battery_changed(BatteryChargeState charge) {
   s_battery = charge;
   mark_dirty();
+}
+
+// A new place's land goes to storage a second after its frame is up, so the
+// flash write never holds up the first paint.
+static bool s_land_save_pending;
+
+static void save_land_timer(void *data) {
+  s_land_save_pending = false;
+  globe_save_land();
+}
+
+static void schedule_land_save(void) {
+  if (s_land_save_pending || !globe_land_unsaved())
+    return;
+  s_land_save_pending = true;
+  app_timer_register(1000, save_land_timer, NULL);
 }
 
 // ---------------------------------------------------------------- drawing
@@ -936,6 +960,7 @@ static void canvas_update(Layer *layer, GContext *ctx) {
       draw_sun_mark(ctx, s_globe.sun.x, s_globe.sun.y);
     if (s_globe.has_pin)
       draw_location_pin(ctx, s_globe.pin.x, s_globe.pin.y);
+    schedule_land_save();
   }
   draw_battery(ctx);
 
