@@ -7,13 +7,10 @@
     "pebble-app"
   ],
   "private": true,
-  "dependencies": {
-    "@moddable/pebbleproxy": "^0.2.0"
-  },
+  "dependencies": {},
   "pebble": {
     "displayName": "Yearlight",
     "uuid": "cf9c0d01-1aa2-44b2-a79f-644baa16d24c",
-    "projectType": "moddable",
     "sdkVersion": "3",
     "enableMultiJS": true,
     "targetPlatforms": [
@@ -28,9 +25,9 @@
       "configurable"
     ],
     "messageKeys": [
-    "PAYLOAD",
-    "CMD",
-    "THEME"
+      "PAYLOAD",
+      "CMD",
+      "THEME"
     ],
     "resources": {
       "media": []

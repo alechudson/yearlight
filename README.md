@@ -49,25 +49,58 @@ pebble install --phone <ip>           # install to a paired phone
 Targets **emery** (Pebble Time 2, 200 × 228) and **gabbro** (Pebble Round 2,
 260 × 260). The round layout keeps the same sky-over-HUD stack with a larger
 globe, HUD rows inset from the curved edge, and the year stars remapped into the
-round sky. Platforms without Moddable XS (including the original Time Round,
-chalk) are not supported.
+round sky. Other platforms (including the original Time Round, chalk) have no
+layout yet.
 
 ```sh
 pebble install --emulator gabbro
 pebble screenshot --no-open --emulator gabbro screenshot_gabbro.png
 ```
 
+## Native C
+
+The watch side is native C. Up to 1.2.0 it was Moddable JavaScript, which a
+watchface pays for at every launch, and a watchface relaunches after every
+notification and menu visit:
+
+- **No engine to start.** The JavaScript face first built an XS machine (about
+  56 KB of stack, slot and chunk pools) and loaded three modules.
+- **No data to decode.** The land mask and year stars are `const` tables in
+  flash (`src/c/worldmask.c`, `src/c/yearstars.c`). XS indexes strings by
+  walking them, so the old hex decode walked about 15 million bytes per launch.
+- **Integer math where it repeats.** Watch apps build for a Cortex-M3 with no
+  FPU, so every float operation is a library call. The globe's 3,228 samples
+  (3,852 on Round 2) use integer square roots and a fixed-point `atan2`:
+  positions in 1/256 px, angles in binary turns. Doubles are left for the
+  handful of sun and sunrise calculations per redraw.
+- **Shading cached.** Land is projected once per place. Day and night are
+  shaded once per half hour (or theme, quick view or new day), and each frame
+  replays the result as runs of `graphics_fill_rect`.
+
+The Round 2 star lattice is baked into `yearstars.c` by
+`scripts/gen-round-stars.cjs --write`, and `scripts/gen_globe.py` writes
+`worldmask.c`.
+
 ## Stability checks
 
 ```sh
-node --test tests/*.cjs       # deterministic host-side regressions
-pebble build                 # compile the actual Moddable/Emery bundle
+node --test tests/*.cjs       # host-side regressions (needs gcc)
+pebble build                 # compile for emery and gabbro
 pebble install --emulator emery
 pebble screenshot --no-open --emulator emery screenshot_emery.png
 ```
 
-Host-side tests exercise the watch JavaScript with mocked hardware boundaries;
-they do not replace an emulator run or paired-phone testing. Before treating a
+`tests/c-port.cjs` compiles `src/c` with `gcc` against a stand-in `pebble.h`
+(`tests/c/`). It runs the same scripts through it and the 1.2.0 JavaScript face
+(`tests/reference/`): a day of ticks, every theme and weather icon, 12-hour time,
+offline and location-only starts, polar days, quick views, relaunch from storage,
+payload edge cases, and 60 random places and dates. Every pixel outside the globe
+and every text draw must match exactly. Inside the disc, at most 1% of pixels may
+differ; in practice it is 0.15% or less, where fixed-point rounding moves a
+coastline or terminator sample.
+
+Host-side tests mock the hardware boundaries; they do not replace an emulator
+run or paired-phone testing. Before treating a
 build as a daily-driver release, test location permission denial, Bluetooth
 reconnection, a day rollover, and battery use on a real watch. The solar shading
 is an approximation, not a navigation or astronomical instrument.
@@ -75,10 +108,12 @@ is an approximation, not a navigation or astronomical instrument.
 ## Project layout
 
 ```
-src/c/mdbl.c                   C glue around the Moddable runtime
-src/embeddedjs/main.js         JavaScript that runs on the watch
-src/embeddedjs/manifest.json   Moddable manifest
+src/c/yearlight.c              The watchface: state, HUD, phone messages, storage
+src/c/globe.c                  Globe sampling, land projection and shading
+src/c/worldmask.c              Land mask table (scripts/gen_globe.py)
+src/c/yearstars.c              Year star tables (round ones by scripts/gen-round-stars.cjs)
 src/pkjs/index.js              PebbleKit JS (phone-side) code
+tests/reference/               The 1.2.0 JavaScript face, the port's reference
 package.json                   Project metadata (UUID, platforms, resources)
 wscript                        Build rules — usually no need to edit
 ```

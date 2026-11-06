@@ -1,6 +1,10 @@
+## Native C port
+
+The watch side is native C (`src/c`). `tests/c-port.cjs` holds it to the 1.2.0 Moddable JavaScript face kept in `tests/reference/`. It runs the same scripted sessions through both: exact pixels outside the globe disc, exact text draws, and at most 1% of disc pixels apart. The XS pool sizes below no longer apply. The port has been compiled and checked on the host only: `pebble build`, the emulator and a real watch are still required before release.
+
 ## Daylight layout
 
-The active design is documented in `README.md`. Its black ruler follows sunrise → sunset and then sunset → next sunrise, without a midnight reset. `tests/daylight.cjs` covers the rendered HUD, phase boundaries, midnight continuity, pre-dawn startup, missing solar events and 12-hour formatting. `tests/phone.cjs` checks that the forecast request includes yesterday's solar events.
+The active design is documented in `README.md`. Its black ruler follows sunrise → sunset and then sunset → next sunrise, without a midnight reset. The JavaScript face's `tests/daylight.cjs` covered the rendered HUD, phase boundaries, midnight continuity, pre-dawn startup, missing solar events and 12-hour formatting; `tests/c-port.cjs` now replays those cases against the C build. `tests/phone.cjs` checks that the forecast request includes yesterday's solar events.
 
 The older checkpoint below describes a previous layout/network implementation; its test counts and removed rain/temperature-chart details are historical, not current acceptance criteria. Physical-watch overnight, reconnection and battery testing remains required.
 
