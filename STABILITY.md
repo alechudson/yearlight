@@ -1,6 +1,6 @@
 ## Native C port
 
-The watch side is native C (`src/c`). `tests/c-port.cjs` holds it to the 1.2.0 Moddable JavaScript face kept in `tests/reference/`. It runs the same scripted sessions through both: exact pixels outside the globe disc, exact text draws, and at most 1% of disc pixels apart. The XS pool sizes below no longer apply. The port has been compiled and checked on the host only: `pebble build`, the emulator and a real watch are still required before release.
+The watch side is native C (`src/c`). `tests/c-port.cjs` holds it to the 1.2.0 Moddable JavaScript face kept in `tests/reference/`. It runs the same scripted sessions through both: exact pixels outside the globe disc, exact text draws, and at most 1% of disc pixels apart. The XS pool sizes below no longer apply. `pebble build` (SDK 4.44) builds it for emery and gabbro without warnings from its own code. On both emulators it launches, takes the phone's message, stores it, and relaunches from it. A real watch is still required before release: overnight, reconnection, location denial and battery.
 
 ## Daylight layout
 

@@ -12,6 +12,7 @@
     "displayName": "Yearlight",
     "uuid": "cf9c0d01-1aa2-44b2-a79f-644baa16d24c",
     "sdkVersion": "3",
+    "manifestVersion": 1,
     "enableMultiJS": true,
     "targetPlatforms": [
       "emery",

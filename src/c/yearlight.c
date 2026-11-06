@@ -941,8 +941,8 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     apply_theme(value, false);
   }
   const Tuple *payload = dict_find(iter, MESSAGE_KEY_PAYLOAD);
-  if (payload && payload->type == TUPLE_CSTRING && payload->length > 0 &&
-      payload->value->cstring[0])
+  // length counts the terminating NUL: more than one byte is a non-empty string.
+  if (payload && payload->type == TUPLE_CSTRING && payload->length > 1)
     apply_payload(payload->value->cstring);
 }
 

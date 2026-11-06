@@ -81,6 +81,24 @@ The Round 2 star lattice is baked into `yearstars.c` by
 `scripts/gen-round-stars.cjs --write`, and `scripts/gen_globe.py` writes
 `worldmask.c`.
 
+Relaunch from stored data on the SDK 4.44 emulator, from the launch command to
+a full frame (`scripts/emulator-launch-timing.py`, median of 5–6 launches):
+
+| | Time 2: clock | Time 2: globe | Round 2: clock | Round 2: globe |
+|---|---|---|---|---|
+| 1.2.0 JavaScript | 0.27 s | 0.44 s | 0.44 s | 0.80 s |
+| native C | 0.09 s | 0.09 s | 0.09 s | 0.09 s |
+
+QEMU does not run at watch speed, and each screendump takes about 40 ms, so
+read the ratio, not the seconds. The C app's whole RAM footprint (code,
+tables and state) is 36.7 KB of the 128 KB app space; the JavaScript face
+reserved 57 KB of XS pools before loading anything.
+
+`package.json` sets `"manifestVersion": 1`. Without `usesPermissions`, SDK 4.44
+warns that the phone-side JavaScript can't make network requests, and 1 keeps
+the phone behaviour of 1.2.0 (Open-Meteo, GeoJS, location). Declaring the
+permissions instead is the newer route.
+
 ## Stability checks
 
 ```sh
@@ -113,6 +131,7 @@ src/c/globe.c                  Globe sampling, land projection and shading
 src/c/worldmask.c              Land mask table (scripts/gen_globe.py)
 src/c/yearstars.c              Year star tables (round ones by scripts/gen-round-stars.cjs)
 src/pkjs/index.js              PebbleKit JS (phone-side) code
+scripts/emulator-launch-timing.py  Launch-to-paint times on the emulator
 tests/reference/               The 1.2.0 JavaScript face, the port's reference
 package.json                   Project metadata (UUID, platforms, resources)
 wscript                        Build rules — usually no need to edit
