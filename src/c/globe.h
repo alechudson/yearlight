@@ -11,7 +11,7 @@ typedef struct {
 // sin(-0.833°): NOAA apparent sunrise (refraction plus the solar radius).
 #define NIGHT_SIN (-0.014538080502496949)
 
-// Sets up the 2x2-sample grid of a globe centered at (map_w / 2, globe_cy).
+// Sets up the one-sample-per-pixel grid of a globe centered at (map_w / 2, globe_cy).
 void globe_init(int map_w, int map_h, int globe_cy, int globe_r);
 
 // Works out which samples are land, ocean, day and night for a view origin

@@ -6,17 +6,19 @@
 #include "tables.h"
 
 // Watch apps are built for a Cortex-M3 with no FPU, so every float operation
-// is a library call. Per-sample work here is integer: positions in 1/256 px,
+// is a library call. Every pixel of the disc is a sample, read at its center:
+// sample offsets from the globe's center are kept in half pixels (odd
+// numbers). Per-sample work here is integer: positions in 1/256 px,
 // directions in Q14/Q15 and angles in binary turns (2^32 = 360°). Doubles are
 // only used a handful of times per shade, for the view and sun directions.
 
 #define PI 3.14159265358979323846
-#define MAX_SIDE 72  // samples per row or column (globe radius up to 72 px)
+#define MAX_SIDE 144  // samples per row or column (globe radius up to 72 px)
 #define NO_SPAN 255
 
 static int s_cx, s_cy, s_r, s_x0, s_y0, s_sample_w, s_rows;
-// Row r of samples sits at y = s_y0 + 2r; sample i at x = s_x0 + 2i, read at
-// the pixel center (+1). The disc covers samples s_span_a[r]..s_span_b[r].
+// Row r of samples is pixel row s_y0 + r; sample i is pixel column s_x0 + i.
+// The disc covers samples s_span_a[r]..s_span_b[r].
 static uint8_t s_span_a[MAX_SIDE];
 static uint8_t s_span_b[MAX_SIDE];
 // Sine of each mask row's top edge latitude, in the same units as Py.
@@ -79,26 +81,35 @@ static uint32_t turn_from_deg(double deg) {
   return (uint32_t)(int64_t)llround(deg / 360.0 * 4294967296.0);
 }
 
+// Pixel centers as offsets from the globe's center, in half pixels: x grows
+// right, y grows up.
+static int half_x(int i) {
+  return 2 * (s_x0 + i - s_cx) + 1;
+}
+
+static int half_y(int r) {
+  return 2 * (s_cy - s_y0 - r) - 1;
+}
+
 void globe_init(int map_w, int map_h, int globe_cy, int globe_r) {
   s_cx = map_w / 2;
   s_cy = globe_cy;
   s_r = globe_r < MAX_SIDE ? globe_r : MAX_SIDE;
-  // As the original's GLOBE_X0..Y1: samples on even pixels inside the disc's box.
-  const int x0 = (s_cx - s_r) & ~1;
-  const int x1 = (s_cx + s_r - 1) & ~1;
-  const int y0 = (s_cy - s_r) & ~1;
-  const int y1 = (s_cy + s_r - 1) & ~1;
+  const int x0 = s_cx - s_r;
+  const int x1 = s_cx + s_r;  // exclusive
+  const int y0 = s_cy - s_r;
+  const int y1 = s_cy + s_r;
   s_x0 = x0 > 0 ? x0 : 0;
   s_y0 = y0 > 0 ? y0 : 0;
-  s_sample_w = ((x1 < map_w - 2 ? x1 : map_w - 2) + 2 - s_x0) >> 1;
-  s_rows = ((y1 < map_h - 2 ? y1 : map_h - 2) + 2 - s_y0) >> 1;
-  const int r2 = s_r * s_r;
+  s_sample_w = (x1 < map_w ? x1 : map_w) - s_x0;
+  s_rows = (y1 < map_h ? y1 : map_h) - s_y0;
+  const int r2 = 4 * s_r * s_r;
   for (int r = 0; r < s_rows; r++) {
-    const int y = s_cy - (s_y0 + 2 * r + 1);
+    const int y = half_y(r);
     int a = -1;
     int b = -1;
     for (int i = 0; i < s_sample_w; i++) {
-      const int x = s_x0 + 2 * i + 1 - s_cx;
+      const int x = half_x(i);
       if (x * x + y * y <= r2) {
         if (a < 0)
           a = i;
@@ -131,9 +142,9 @@ static int lat_row(int32_t py) {
   return lo < MASK_H ? lo : MASK_H - 1;
 }
 
-// z (1/256 px) of sample (x, y), both offsets from the globe center.
+// z (1/256 px) of the sample at half-pixel offsets (x, y): sqrt(4r² - x² - y²) / 2.
 static int32_t sample_z(int x, int y) {
-  return (int32_t)isqrt32((uint32_t)(s_r * s_r - x * x - y * y) << 16);
+  return (int32_t)isqrt32((uint32_t)(4 * s_r * s_r - x * x - y * y) << 14);
 }
 
 // The inverse orthographic projection of every sample, against the land mask.
@@ -146,14 +157,14 @@ static void compute_land(double lon, double lat) {
   for (int r = 0; r < s_rows; r++) {
     if (s_span_a[r] == NO_SPAN)
       continue;
-    const int y = s_cy - (s_y0 + 2 * r + 1);
-    const int32_t yq = y * 256;
+    const int y = half_y(r);
+    const int32_t yq = y * 128;
     for (int i = s_span_a[r]; i <= s_span_b[r]; i++) {
-      const int x = s_x0 + 2 * i + 1 - s_cx;
+      const int x = half_x(i);
       const int32_t zq = sample_z(x, y);
       const int32_t py = (yq * c0 + zq * s0) >> 15;
       const int32_t pz = (zq * c0 - yq * s0) >> 15;
-      const uint32_t a = lon0 + atan2_turn(x * 256, pz);
+      const uint32_t a = lon0 + atan2_turn(x * 128, pz);
       const int mx = (int)(((uint64_t)a * MASK_W) >> 32);
       const int bit = lat_row(py) * MASK_W + mx;
       if ((WORLD_MASK[bit >> 3] >> (bit & 7)) & 1) {
@@ -191,12 +202,12 @@ void globe_shade(double lon, double lat, const Sun *sun) {
   for (int r = 0; r < s_rows; r++) {
     if (s_span_a[r] == NO_SPAN)
       continue;
-    const int y = s_cy - (s_y0 + 2 * r + 1);
-    const int32_t vyy = vy * y * 256;
+    const int y = half_y(r);
+    const int32_t vyy = vy * y * 128;
     for (int i = s_span_a[r]; i <= s_span_b[r]; i++) {
-      const int x = s_x0 + 2 * i + 1 - s_cx;
+      const int x = half_x(i);
       const int k = r * s_sample_w + i;
-      const int night = vx * x * 256 + vyy + vz * sample_z(x, y) < limit;
+      const int night = vx * x * 128 + vyy + vz * sample_z(x, y) < limit;
       const int land = (s_land[k >> 3] >> (k & 7)) & 1;
       s_color[k >> 2] |= (land * 2 + night) << ((k & 3) * 2);
     }
@@ -207,7 +218,7 @@ void globe_draw(GContext *ctx) {
   for (int r = 0; r < s_rows; r++) {
     if (s_span_a[r] == NO_SPAN)
       continue;
-    const int y = s_y0 + 2 * r;
+    const int y = s_y0 + r;
     const int base = r * s_sample_w;
     int start = s_span_a[r];
     int color = (s_color[(base + start) >> 2] >> (((base + start) & 3) * 2)) & 3;
@@ -219,7 +230,7 @@ void globe_draw(GContext *ctx) {
       GColor fill;
       fill.argb = GLOBE_COLORS[color];
       graphics_context_set_fill_color(ctx, fill);
-      graphics_fill_rect(ctx, GRect(s_x0 + 2 * start, y, 2 * (i - start), 2), 0, GCornerNone);
+      graphics_fill_rect(ctx, GRect(s_x0 + start, y, i - start, 1), 0, GCornerNone);
       start = i;
       color = c;
     }
