@@ -9,7 +9,7 @@ int main(void) {
   ModdableCreationRecord cr = {
     .recordSize = sizeof(cr),
     .stack = 6144,
-    .slot = 28672, // Launch peaks between 25600 and 26624 (emulator, 1.0.9).
+    .slot = 32768, // 28672 ran out at launch with the run-based globe (emulator, SDK 4.44): "Slot allocation: failed".
     .chunk = 22528, // Runs at 18432; all three pools must be explicit. Same 50 KB total as 26624/24576.
     .flags = kModdableCreationFlagDebug,
   };
@@ -18,7 +18,7 @@ int main(void) {
   ModdableCreationRecord cr = {
     .recordSize = sizeof(cr),
     .stack = 6144,
-    .slot = 28672, // Launch peaks between 25600 and 26624 (emulator, 1.0.9).
+    .slot = 32768, // 28672 ran out at launch with the run-based globe (emulator, SDK 4.44): "Slot allocation: failed".
     .chunk = 22528, // Runs at 18432; all three pools must be explicit. Same 50 KB total as 26624/24576.
     .flags = 0,
   };
