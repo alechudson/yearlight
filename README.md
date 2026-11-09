@@ -77,6 +77,10 @@ notification and menu visit:
   shaded once per half hour (or theme, quick view or new day), and each frame
   replays the result as runs of `graphics_fill_rect`.
 
+The pale disc on the globe is the Moon, drawn where it is overhead. A dozen
+terms of the lunar series (Meeus ch. 47) put it within 0.35° of astropy's
+ephemeris (`tests/fixtures/moon.json`). It's worked out once per shade, with the sun.
+
 The Round 2 star lattice is baked into `yearstars.c` by
 `scripts/gen-round-stars.cjs --write`, and `scripts/gen_globe.py` writes
 `worldmask.c`.
