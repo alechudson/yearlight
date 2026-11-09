@@ -68,13 +68,17 @@ function referenceGlobe([cx, cy, r], origin, sun) {
 	};
 }
 
-const built = spawnSync('gcc', ['-std=c99', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-Os',
+// BIN leaves out the moon marker, which 1.2.0 did not have; MOON_BIN is the face as shipped.
+const MOON_BIN = BIN + '-moon';
+const build = (out, defines) => spawnSync('gcc', ['-std=c99', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-Os', ...defines,
 	'-I', path.join(__dirname, 'c'), ...fs.readdirSync(path.join(ROOT, 'src/c')).filter(f => f.endsWith('.c')).map(f => path.join(ROOT, 'src/c', f)),
-	path.join(__dirname, 'c/mock.c'), '-lm', '-o', BIN], {encoding: 'utf8'});
+	path.join(__dirname, 'c/mock.c'), '-lm', '-o', out], {encoding: 'utf8'});
+const built = build(BIN, ['-DYEARLIGHT_NO_MOON']);
 const skip = built.error ? 'gcc not available' : false;
-if (!skip && built.status !== 0)
-	throw new Error('host build failed:\n' + built.stderr);
-process.on('exit', () => fs.rmSync(BIN, {force: true}));
+for (const result of skip ? [] : [built, build(MOON_BIN, [])])
+	if (result.status !== 0)
+		throw new Error('host build failed:\n' + result.stderr);
+process.on('exit', () => { fs.rmSync(BIN, {force: true}); fs.rmSync(MOON_BIN, {force: true}); });
 
 const argb = (r, g, b) => 0xC0 | ((r >> 6) << 4) | ((g >> 6) << 2) | (b >> 6);
 // Text box tops, as the firmware's Poco places them: y - cap + 1.
@@ -610,4 +614,37 @@ test('the C stars are the JavaScript face\'s, and the finer mask agrees with its
 	const agree = same / (ow * oh);
 	process.stdout.write(`# the 1:50m mask agrees with 1:110m on ${(agree * 100).toFixed(1)}% of coarse cells\n`);
 	assert.ok(agree > 0.95, `agreement ${agree}`);
+});
+
+test('the moon marker sits on the sub-lunar point, within a pixel of astropy', {skip}, () => {
+	const {points} = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/moon.json'), 'utf8'));
+	for (const [w, h, cx, cy, r] of [[200, 228, 100, 66, 64], [260, 260, 130, 78, 70]]) {
+		// Seen from Jerusalem; the view tilt is the place's latitude (under the 40° clamp).
+		const [lat, lon] = [31.7683, 35.2137];
+		const lines = [`size ${w} ${h}`, `now ${points[0].t}`, 'start', `msg - ${lat},${lon}`];
+		for (const p of points)
+			lines.push(`now ${p.t}`, 'tick', 'frame');
+		const run = spawnSync(MOON_BIN, [], {input: lines.join('\n') + '\n', encoding: 'utf8', maxBuffer: 1 << 28});
+		const frames = run.stdout.trim().split('\n').map(line => JSON.parse(line));
+		const rad = Math.PI / 180;
+		let seen = 0;
+		points.forEach((p, i) => {
+			const dlon = (p.lon - lon) * rad;
+			const near = Math.sin(lat * rad) * Math.sin(p.lat * rad) + Math.cos(lat * rad) * Math.cos(p.lat * rad) * Math.cos(dlon);
+			const body = frames[i].rects.filter(([c, , y, rw, rh]) => c === 0xEA && rw === 5 && rh === 3 && y < cy + r);
+			if (Math.abs(near) < 0.05)
+				return;  // on the limb: either side of it is fine
+			if (near < 0) {
+				assert.equal(body.length, 0, `${p.t}: a moon behind the globe is drawn`);
+				return;
+			}
+			const x = cx + r * Math.cos(p.lat * rad) * Math.sin(dlon);
+			const y = cy - r * (Math.cos(lat * rad) * Math.sin(p.lat * rad) - Math.sin(lat * rad) * Math.cos(p.lat * rad) * Math.cos(dlon));
+			assert.equal(body.length, 1, `${p.t}: moon marker missing`);
+			const [, bx, by] = body[0];
+			assert.ok(Math.abs(bx + 2 - x) <= 1.5 && Math.abs(by + 1 - y) <= 1.5, `${p.t}: moon at ${bx + 2},${by + 1}, astropy ${x.toFixed(1)},${y.toFixed(1)}`);
+			seen++;
+		});
+		assert.ok(seen >= 15, `only ${seen} visible moons checked`);
+	}
 });

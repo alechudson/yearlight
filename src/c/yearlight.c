@@ -208,6 +208,29 @@ static Sun sun_at(int64_t ms) {
   return sun;
 }
 
+// The sub-lunar point: where the Moon is overhead. The main terms of the
+// lunar series (Meeus, Astronomical Algorithms, ch. 47) put it within about
+// 0.35° of a full ephemeris (tests/c-port.cjs checks against astropy): under
+// half a pixel on the globe, for a dozen trig calls per half-hour shade.
+static void moon_at(int64_t ms, double *lon, double *lat) {
+  const double n = (double)ms / 86400000 - 10957.5;
+  const double rad = PI / 180;
+  const double d = (297.8502 + 12.19074912 * n) * rad;   // mean elongation
+  const double m = (357.5291 + 0.98560028 * n) * rad;    // Sun's mean anomaly
+  const double mp = (134.9634 + 13.06499295 * n) * rad;  // Moon's mean anomaly
+  const double f = (93.2721 + 13.22935024 * n) * rad;    // argument of latitude
+  const double lambda = (218.3165 + 13.17639648 * n + 6.289 * sin(mp) + 1.274 * sin(2 * d - mp) +
+                         0.658 * sin(2 * d) + 0.214 * sin(2 * mp) - 0.186 * sin(m) -
+                         0.114 * sin(2 * f)) * rad;
+  const double beta = (5.128 * sin(f) + 0.281 * sin(mp + f) + 0.278 * sin(mp - f) +
+                       0.173 * sin(2 * d - f)) * rad;
+  const double tilt = (23.439 - 0.0000004 * n) * rad;
+  const double ra = atan2(sin(lambda) * cos(tilt) - tan(beta) * sin(tilt), cos(lambda)) / rad;
+  const double gmst = 280.46061837 + 360.98564736629 * n;
+  *lon = fmod(fmod(ra - gmst, 360) + 540, 360) - 180;
+  *lat = asin(sin(beta) * cos(tilt) + cos(beta) * sin(tilt) * sin(lambda)) / rad;
+}
+
 static bool is_night_lon_lat(double lon, double lat, const Sun *sun) {
   const double xa = (lon + 180) * PI / 180;
   const double lat_r = lat * PI / 180;
@@ -733,6 +756,8 @@ static struct {
   int stars;
   bool has_sun;
   GPoint sun;
+  bool has_moon;
+  GPoint moon;
   bool has_pin;
   GPoint pin;
 } s_globe;
@@ -791,6 +816,14 @@ static void draw_sun_mark(GContext *ctx, int x, int y) {
     fill(ctx, YELLOW, x + DOTS[i][0], y + DOTS[i][1], 1, 1);
 }
 
+// A small pale disc with a dark rim, apart from the white-cored pin.
+static void draw_moon_mark(GContext *ctx, int x, int y) {
+  fill(ctx, BLACK, x - 3, y - 2, 7, 5);
+  fill(ctx, BLACK, x - 2, y - 3, 5, 7);
+  fill(ctx, LIGHT_GRAY, x - 2, y - 1, 5, 3);
+  fill(ctx, LIGHT_GRAY, x - 1, y - 2, 3, 5);
+}
+
 static void draw_location_pin(GContext *ctx, int x, int y) {
   fill(ctx, BLACK, x - 2, y - 1, 5, 3);
   fill(ctx, BLACK, x - 1, y - 2, 3, 5);
@@ -805,6 +838,13 @@ static void shade_globe(int64_t now, Origin origin, int64_t step, int stars) {
   const double cos_lat0 = cos(lat0);
   const double lon0 = origin.lon * PI / 180;
   s_globe.has_sun = project_globe(sun.lon, sun.lat, lon0, sin_lat0, cos_lat0, &s_globe.sun);
+  double moon_lon, moon_lat;
+  moon_at(now, &moon_lon, &moon_lat);
+  s_globe.has_moon = project_globe(moon_lon, moon_lat, lon0, sin_lat0, cos_lat0, &s_globe.moon);
+#ifdef YEARLIGHT_NO_MOON
+  // tests/c-port.cjs holds the face to 1.2.0, which had no moon.
+  s_globe.has_moon = false;
+#endif
   s_globe.has_pin = s.has_location &&
                     project_globe(s.lon, s.lat, lon0, sin_lat0, cos_lat0, &s_globe.pin);
   s_globe.valid = true;
@@ -958,6 +998,8 @@ static void canvas_update(Layer *layer, GContext *ctx) {
     draw_year_stars(ctx, &local);
     if (s_globe.has_sun)
       draw_sun_mark(ctx, s_globe.sun.x, s_globe.sun.y);
+    if (s_globe.has_moon)
+      draw_moon_mark(ctx, s_globe.moon.x, s_globe.moon.y);
     if (s_globe.has_pin)
       draw_location_pin(ctx, s_globe.pin.x, s_globe.pin.y);
     schedule_land_save();
