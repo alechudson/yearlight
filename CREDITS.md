@@ -14,7 +14,7 @@ are a separate implementation.
 
 ## Map
 
-Globe land/lake pixels in `src/embeddedjs/worldmask.js` are rasterized from
+Globe land/lake pixels in `src/c/worldmask.c` are rasterized from
 Natural Earth 1:110m vectors. Natural Earth is in the public domain; credit is
 optional. Made with Natural Earth.
 
@@ -53,10 +53,10 @@ Phase bitmaps are original.
 
 ## Platform
 
-Built with the [Rebble / Pebble SDK](https://developer.repebble.com), the
-[Moddable](https://www.moddable.com/) XS runtime and Commodetto/Poco renderer,
-and the `@moddable/pebbleproxy` build helper (LGPL-3.0-or-later). Those are
-not vendored in this repository.
+Built with the [Rebble / Pebble SDK](https://developer.repebble.com) as a
+native C app. Up to 1.2.0 the watch side ran on the
+[Moddable](https://www.moddable.com/) XS runtime and Commodetto/Poco renderer;
+that version is kept in `tests/reference/` as the port's test reference.
 
 On-watch type uses Pebble system fonts **Bitham-Bold** and **Gothic-Bold**;
 the font files are not included here.

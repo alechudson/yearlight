@@ -10,3 +10,4 @@ artifacts/perf/working-tree.json
 screenshot_emery.png
 *.log
 screenshots/
+.lock-waf_*
