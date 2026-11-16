@@ -5,10 +5,12 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-THEMES="classic black white gray black-gray"
+# Two consecutive frames per theme, in theme order, across one London day.
+# Mid-November sunrise is about 07:20 and sunset about 16:15.
+SLOTS="classic 05:10 classic 07:20 black 09:30 black 11:00 white 12:30 white 14:00 gray 15:20 gray 16:15 black-gray 18:00 black-gray 21:30"
 LONDON_LAT=51.5074
 LONDON_LON=-0.1278
-HOLD_CS=150
+HOLD_CS=70
 MAX_BYTES=1048576
 
 TMP="$(mktemp -d)"
@@ -52,6 +54,44 @@ PY="$(sed -n '1s/^#!//p' "$(command -v pebble)")"
 if [ ! -x "$PY" ]; then
 	PY=python3
 fi
+
+REAL_QEMU="$(find "$HOME/.local/share/pebble-sdk/SDKs" -type f -name qemu-pebble -print | sort | tail -n 1)"
+FAKE_SO="$(find /usr/lib -type f -name libfaketimeMT.so.1 -print | head -n 1)"
+if [ -z "$REAL_QEMU" ] || [ -z "$FAKE_SO" ]; then
+	echo "need qemu-pebble from the Pebble SDK and libfaketime" >&2
+	exit 1
+fi
+CLOCK="$TMP/clock"
+# +0 keeps the first boot on the real clock so the phone can fetch the forecast.
+echo '+0 x1' >"$CLOCK"
+cat >"$TMP/qemu-pebble" <<EOF
+#!/usr/bin/env python3
+import os, sys
+os.environ["LD_PRELOAD"] = "$FAKE_SO"
+os.environ["FAKETIME_TIMESTAMP_FILE"] = "$CLOCK"
+os.environ["FAKETIME_NO_CACHE"] = "1"
+os.environ["FAKETIME_DONT_FAKE_MONOTONIC"] = "1"
+os.environ["TZ"] = "Europe/London"
+qemu = "$REAL_QEMU"
+os.execv(qemu, [qemu] + sys.argv[1:])
+EOF
+chmod +x "$TMP/qemu-pebble"
+export PEBBLE_QEMU_PATH="$TMP/qemu-pebble"
+cat >"$TMP/set-clock.py" <<'PY'
+import sys
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+clock, hh, mm = sys.argv[1:]
+london = ZoneInfo("Europe/London")
+now = datetime.now(london)
+# Yesterday stays behind the phone's forecast timestamp, so the face does not
+# draw the stale mark while the sun still follows this clock.
+target = (now - timedelta(days=1)).replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+delta = int((target - now).total_seconds())
+with open(clock, "w") as fh:
+    fh.write(f"{delta:+d} x1\n")
+PY
 
 pebble build
 
@@ -250,14 +290,44 @@ capture_platform() {
 	height="$3"
 	frames="$TMP/$platform"
 	mkdir -p "$frames"
+	echo '+0 x1' >"$CLOCK"
 	pebble install --emulator "$platform"
 	pebble emu-set-location --emulator "$platform" "$LONDON_LAT" "$LONDON_LON"
 	wait_for_london "$platform"
 	n=0
-	for theme in $THEMES; do
-		node "$TMP/save-theme.mjs" "$platform" "$theme" "$CHROME_PORT" >"$TMP/close.txt"
+	# shellcheck disable=SC2086
+	set -- $SLOTS
+	while [ "$#" -gt 0 ]; do
+		theme="$1"
+		hhmm="$2"
+		shift 2
+		hh="${hhmm%:*}"
+		mm="${hhmm#*:}"
+		# The face reads the emulator clock once, at launch. Set it, then restart.
+		python3 "$TMP/set-clock.py" "$CLOCK" "$hh" "$mm"
+		pebble kill >/dev/null 2>&1 || true
+		sleep 1
+		pebble screenshot --no-open --emulator "$platform" "$TMP/warmup.png"
+		sleep 1
+		saved=0
+		try=0
+		while [ "$try" -lt 3 ]; do
+			if node "$TMP/save-theme.mjs" "$platform" "$theme" "$CHROME_PORT" >"$TMP/close.txt"; then
+				saved=1
+				break
+			fi
+			try=$((try + 1))
+			sleep 1
+		done
+		if [ "$saved" -ne 1 ]; then
+			echo "could not save theme $theme on $platform" >&2
+			exit 1
+		fi
 		sleep 2
+		echo "frame $n $platform $theme $hhmm"
 		pebble screenshot --no-open --emulator "$platform" "$frames/$n.png"
+		mkdir -p "$ROOT/store/frames"
+		cp "$frames/$n.png" "$ROOT/store/frames/$platform-$hhmm-$theme.png"
 		n=$((n + 1))
 	done
 	ffmpeg -y -framerate "100/$HOLD_CS" -start_number 0 -i "$frames/%d.png" \
@@ -268,7 +338,7 @@ capture_platform() {
 	ffmpeg -y -framerate "100/$HOLD_CS" -start_number 0 -i "$frames/%d.png" -i "$frames/palette.png" \
 		-lavfi "[0:v][1:v]paletteuse=dither=none:diff_mode=rectangle:alpha_threshold=128" \
 		-loop 0 "$out" -v error
-	"$PY" - "$frames" "$out" "$width" "$height" "$MAX_BYTES" <<'PY'
+	"$PY" - "$frames" "$out" "$width" "$height" "$MAX_BYTES" "$HOLD_CS" "$n" <<'PY'
 import sys
 from pathlib import Path
 try:
@@ -279,16 +349,18 @@ except ImportError:
 frames = Path(sys.argv[1])
 gif_path = Path(sys.argv[2])
 width, height, limit = int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
+hold_ms = int(sys.argv[6]) * 10
+count = int(sys.argv[7])
 size = gif_path.stat().st_size
 if size > limit:
     raise SystemExit(f"{gif_path.name} is {size} bytes")
 gif = Image.open(gif_path)
-if gif.n_frames != 5 or gif.size != (width, height):
+if gif.n_frames != count or gif.size != (width, height):
     raise SystemExit(f"{gif_path.name} is {gif.size} with {gif.n_frames} frames")
 if gif.info.get("loop") != 0:
     raise SystemExit(f"{gif_path.name} does not loop forever")
 for index, frame in enumerate(ImageSequence.Iterator(gif)):
-    if frame.info.get("duration") != 1500:
+    if frame.info.get("duration") != hold_ms:
         raise SystemExit(f"{gif_path.name} frame {index} holds {frame.info.get('duration')} ms")
     shot = Image.open(frames / f"{index}.png").convert("RGBA")
     got = frame.convert("RGBA")
@@ -304,14 +376,8 @@ for index, frame in enumerate(ImageSequence.Iterator(gif)):
                     raise SystemExit(f"{gif_path.name} frame {index} filled a transparent pixel")
             elif dst != src:
                 raise SystemExit(f"{gif_path.name} frame {index} changed a theme pixel")
-print(f"{gif_path.name} {width}x{height} 5 frames {size} bytes")
+print(f"{gif_path.name} {width}x{height} {count} frames {size} bytes")
 PY
-	mkdir -p "$ROOT/store/frames"
-	n=0
-	for theme in $THEMES; do
-		cp "$frames/$n.png" "$ROOT/store/frames/$platform-$theme.png"
-		n=$((n + 1))
-	done
 }
 
 pebble kill >/dev/null 2>&1 || true
