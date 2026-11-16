@@ -33,8 +33,22 @@ pebble clean && pebble publish --is-published --no-gif-all-platforms \
 ```
 
 `pebble clean` matters: an incremental build can keep a stale `appinfo.json`
-version. `--no-gif-all-platforms` keeps the day/night GIF on the listing instead
+version. `--no-gif-all-platforms` keeps the theme GIF on the listing instead
 of replacing it with a one-minute capture.
+
+### Rebuild the listing GIFs
+
+`store/yearlight-emery.gif` is 200 × 228. `store/yearlight-gabbro.gif` is 260 × 260. Each one plays classic, black, white, gray, then black-gray. Each theme stays for 1.5 seconds, and the GIF loops.
+
+`scripts/make-store-gif.sh` installs the face on the emulator, puts the phone in London, saves each theme from the phone settings page, and takes a `pebble screenshot`.
+
+You need the Pebble SDK, Node, Chrome, and ffmpeg. From the repository root:
+
+```sh
+./scripts/make-store-gif.sh
+```
+
+The appstore accepts a PNG, JPEG, or GIF up to 4.4 MB. The script keeps each GIF under 1 MB. The palette is taken from the screenshots, so the captured theme colors are not shifted again.
 
 ## Building & running
 
