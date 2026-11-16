@@ -33,8 +33,22 @@ pebble clean && pebble publish --is-published --no-gif-all-platforms \
 ```
 
 `pebble clean` matters: an incremental build can keep a stale `appinfo.json`
-version. `--no-gif-all-platforms` keeps the day/night GIF on the listing instead
+version. `--no-gif-all-platforms` keeps the time-lapse GIF on the listing instead
 of replacing it with a one-minute capture.
+
+### Rebuild the listing GIFs
+
+`store/yearlight-emery.gif` is 200 × 228. `store/yearlight-gabbro.gif` is 260 × 260. Each one is a London day, 0.7 seconds a frame, looping. The sun and the day/night ruler move from pre-dawn through sunrise, morning, noon, afternoon, sunset, dusk, and night. Themes stay for two frames each, in order: classic, black, white, gray, black-gray.
+
+`scripts/make-store-gif.sh` installs the face on the emulator, puts the phone in London, and saves each theme from the phone settings page. On these boards `pebble emu-set-time` does not move the face, because the face follows the clock inside the emulator. The script sets that clock and restarts the emulator for each frame. The frames use yesterday's date, which keeps the forecast from being marked stale while the clock steps through the day.
+
+You need the Pebble SDK, Node, Chrome, ffmpeg, and libfaketime. From the repository root:
+
+```sh
+./scripts/make-store-gif.sh
+```
+
+The appstore accepts a PNG, JPEG, or GIF up to 4.4 MB. The script keeps each GIF under 1 MB. The palette is taken from the screenshots, so the captured theme colors are not shifted again.
 
 ## Building & running
 
