@@ -12,3 +12,4 @@ screenshot_emery.png
 store/frames/
 *.log
 screenshots/
+.lock-waf_*
